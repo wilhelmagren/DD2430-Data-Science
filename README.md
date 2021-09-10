@@ -22,6 +22,3 @@
 3. Statistical analysis of results obtained.
 
 **Supervisor:** Erik Fransén, erikf@kth.se
-
-**Literature list:**<br>
-1. Hubert Banville et al. "Uncovering the structure of clinical EEG signals with self-supervised learning." 2021J. Neural Eng.18046020.
