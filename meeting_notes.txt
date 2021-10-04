@@ -1,0 +1,13 @@
+Should we look at correlations between EOG channels activity and MEG channels in order to determine blinking artifacts? or do you know a better way?
+(artifacts from both ECG and EOG, ICA. Don’t use ECG/EOG in feature analysis, but keep them as ground truth to verify features)
+
+Are the MAG and GRAD channels in some way appended together to create the 306 MEG channels? (Loading the data with MNE-python 
+and printing info shows that there are 102 MAG and 204 GRAD channels) 
+(magnetometer, gradometer, MAG kännsligare för djupare signaler, MAG risk för mer brus, mindre brus=GRAD)
+
+Do you think there are any channels that are more important than others? E.g. how relevant is it to look at EOG or STIM channels?  
+(inget STIM)
+
+Do you know any good preprocessing techniques for this data in order to reduce potential noise? We are thinking about following preprocessing 
+from a paper (Hubert Banville), where they low pass filter the data at 30Hz and downsample even more to 100Hz.
+(DONT FILTER OR DOWNSAMPLE)
