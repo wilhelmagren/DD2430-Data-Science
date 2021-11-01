@@ -62,7 +62,7 @@ def create_epochs(raw, t_window=15., verbose=False):
     for i in range(n_windows):
         cropped_time_point_right = (i + 1) * n_window_samples
         cropped_time_point_left  = i * n_window_samples
-        tmp = raw_np[:, cropped_time_point_left:cropped_time_point_right]
+        tmp = raw_np[:20, cropped_time_point_left:cropped_time_point_right]
         windows.append((tmp, label))
     print("[*]  returning windows") if verbose else None
     return windows
@@ -205,13 +205,10 @@ class RelativePositioningSampler(Sampler):
             right_negative_context_idx = min(right_positive_context_idx + self.tau_neg, len(self) - 1)
             label = 1.
             if left_negative_context_idx <= negative_idx <= left_positive_context_idx - 1:
-                # print("im here, pos={}, neg={}".format(positive_idx, negative_idx))
                 label = 0.
             if left_positive_context_idx <= negative_idx <= right_positive_context_idx:
-                # print("im here, pos={}, neg={}".format(positive_idx, negative_idx))
                 label = 1.
             if right_positive_context_idx + 1 <= negative_idx <= right_negative_context_idx:
-                # print("im here, pos={}, neg={}".format(positive_idx, negative_idx))
                 label = 0.
             
             batch_pos.append(self.data[positive_idx][None])

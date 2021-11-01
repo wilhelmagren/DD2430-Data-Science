@@ -6,15 +6,18 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from torch import nn
 from stagernet import StagerNet
+from shallownet import ShallowNet
 from utils import DatasetMEG, RelativePositioningSampler
+from sklearn.manifold import TSNE
+
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 torch.manual_seed(98)
 np.random.seed(98)
 sfreq = 200
 
-dataset = DatasetMEG(subject_ids=list(range(2,34)), state_ids=[1], t_window=10)
-sampler = RelativePositioningSampler(dataset.X, len(dataset), tau_pos=6, tau_neg=20, batch_size=16)
+dataset = DatasetMEG(subject_ids=list(range(2,34)), state_ids=[1], t_window=5)
+sampler = RelativePositioningSampler(dataset.X, len(dataset), tau_pos=10, tau_neg=50, batch_size=32)
 
 if device == 'cuda':
     torch.backends.cudnn.benchmark = True
@@ -26,10 +29,10 @@ emb = StagerNet(
     n_channels,
     sfreq,
     n_classes=emb_size,
-    n_conv_chs=8,
+    n_conv_chs=60,
     input_size_s=input_size_samples / sfreq,
     dropout=0.5,
-    apply_batch_norm=True
+    apply_batch_norm=True,
 )
 
 class ContrastiveNet(nn.Module):
@@ -48,7 +51,6 @@ class ContrastiveNet(nn.Module):
 
 
 lr = 1e-4
-batch_size = 64  # isn't used rn
 n_epochs = 10
 num_workers = 0 
 model = ContrastiveNet(emb, emb_size).to(device)
@@ -66,8 +68,23 @@ for epoch in range(n_epochs):
         loss.backward()
         optimizer.step()
         tloss += loss.item()
-        _, pred = torch.max(outputs.data, 1)
-        tacc += (pred == labels).sum().item()/outputs.shape[0]
-    print("[*]  epoch={:02d}  tloss={:.3f}  tacc={:.2f}%".format(epoch+1, tloss/len(sampler), 100*tacc/len(sampler)))
+        #_, pred = torch.max(outputs.data, 1)
+        #tacc += (pred == labels).sum().item()/outputs.shape[0]
+    print("[*]  epoch={:02d}  tloss={:.3f}  tacc={:.2f}%".format(epoch+1, tloss/len(sampler), tacc/len(sampler)))
 
+
+# VISUALIZE THE EMBEDDER FEATURES
+embeddings = list()
+with torch.no_grad():
+    for batch, (anchors, _, _) in tqdm(enumerate(sampler), total=len(sampler), desc='generating embeddings'):
+        anchors = anchors.to(device)
+        embedding = emb(anchors[0, :, :][None])
+        embeddings.append(embedding[None])
+
+embeddings = np.concatenate(torch.cat(embeddings, 0).cpu().detach().numpy(), axis=0)
+tsne = TSNE(n_components=2)
+components = tsne.fit_transform(embeddings)
+fig, ax = plt.subplots()
+ax.scatter(components[0], components[1])
+plt.savefig('tsnechrippe.png')
     
