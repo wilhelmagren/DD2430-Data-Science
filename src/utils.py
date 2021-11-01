@@ -23,6 +23,16 @@ from sklearn.model_selection import LeavePGroupsOut
 RELATIVE_DIRPATH = '../data/data-ds-200HZ/'
 
 
+def whitening(X):
+    print(X)
+    sigma = np.cov(X, rowvar=True)
+    U, S, V = np.linalg.svd(sigma)
+    epsilon = 1e-5
+    ZCA = np.dot(U, np.dot(np.diag(1.0/np.sqrt(S + epsilon)), U.T))
+    X = X@ZCA
+    print(X)
+    return X
+
 def pick_states(dataset, subj_state_ids):
     pick_idx = list()
     for subject_id, state_id in subj_state_ids:
@@ -62,7 +72,7 @@ def create_epochs(raw, t_window=15., verbose=False):
     for i in range(n_windows):
         cropped_time_point_right = (i + 1) * n_window_samples
         cropped_time_point_left  = i * n_window_samples
-        tmp = raw_np[:20, cropped_time_point_left:cropped_time_point_right]
+        tmp = raw_np[20:30, cropped_time_point_left:cropped_time_point_right]
         windows.append((tmp, label))
     print("[*]  returning windows") if verbose else None
     return windows
@@ -117,7 +127,25 @@ def get_state_id(filepath):
         return 4
     raise ValueError
 
-    
+
+def get_subject_gender(f):
+    id = get_subject_id(f)
+    with open('../data/subjects.tsv', 'r') as fil:
+        for line in fil.readlines():
+            if id in line:
+                return line.split('\t')[2]
+    return -1
+
+
+def get_subject_age(f):
+    id = get_subject_id(f)
+    with open('../data/subjects.tsv', 'r') as fil:
+        for line in fil.readlines():
+            if id in line:
+                return line.split('\t')[1]
+    return -1
+
+
 def fetch_data(subject_ids, state_ids, verbose=False):
     """ fetches all raw.fif MEG files
     and returns a list of triplets. each triplet
@@ -141,7 +169,7 @@ def fetch_data(subject_ids, state_ids, verbose=False):
             if stateid_map[state] in file:
                 subject_state_files.append(file)
     
-    subject_state_files = list((get_subject_id(f), get_state_id(f), f) for f in subject_state_files)
+    subject_state_files = list((get_subject_id(f), get_state_id(f), get_subject_gender(f), get_subject_age(f), f) for f in subject_state_files)
     print("[*]  returning filepaths") if verbose else None
     return subject_state_files
 
@@ -274,14 +302,15 @@ class DatasetMEG(Dataset):
         all_epochs_datasets = list()
         raw_paths = fetch_data(subject_ids, state_ids, verbose)
         X, Y = [], []
-        for subject_id, state_id, file in raw_paths:
+        for subject_id, state_id, subject_gender, subject_age, file in raw_paths:
             raw = self._load_raw(file, subject_id, state_id, drop_channels=True)
             epochs = create_epochs(raw, t_window=self.t_window, verbose=verbose)
             for epoch in epochs:
                 X.append(epoch[0][None])
-                Y.append(epoch[1])
+                Y.append((epoch[1], subject_gender, subject_age))
         X = np.concatenate(X, axis=0)
         Y = np.array(Y)
+        print(Y.shape)
         self.X, self.Y = X, Y
         print("[*] loaded {} samples for DatasetMEG".format(len(Y)))
     
