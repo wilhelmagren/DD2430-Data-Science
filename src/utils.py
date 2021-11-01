@@ -134,7 +134,7 @@ def fetch_data(subject_ids, state_ids, verbose=False):
     # homedir = os.path.expanduser('~')
     # files = list(os.listdir(os.path.join(homedir, 'project/datasetmeg2021-subj-01--03/')))
     files = list(os.listdir(RELATIVE_DIRPATH))
-    files = list(os.path.join(REALTIVE_DIRPATH, f) for f in files if get_subject_id(f) in subject_ids)
+    files = list(os.path.join(RELATIVE_DIRPATH, f) for f in files if get_subject_id(f) in subject_ids)
     
     subject_state_files = list()
     for file in files:
