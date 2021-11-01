@@ -15,7 +15,7 @@ torch.manual_seed(98)
 np.random.seed(98)
 sfreq = 200
 from utils import DatasetMEG, RelativePositioningSampler
-dataset = DatasetMEG(subject_ids=[2, 3], state_ids=[1, 2, 3, 4], t_window=10)
+dataset = DatasetMEG(subject_ids=list(range(2,21)), state_ids=[1, 2, 3, 4], t_window=10)
 sampler = RelativePositioningSampler(dataset.X, len(dataset), tau_pos=6, tau_neg=20)
 if device == 'cuda':
     torch.backends.cudnn.benchmark = True
