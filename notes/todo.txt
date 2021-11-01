@@ -1,0 +1,35 @@
+DD2430 Project in Data Science TODO:
+
+Continue writing on the report. Previous work, research question(s), methodology, results (reproduction of banville et al. 2020 EEG), background.
+Make sure that it is clear what we have learned so far, what challenges we have encountered, how we have dealt with them and what we think is challenging.
+This is what Danica wants us to convey in the report (I think) so we should probably but large emphasis on those parts. 
+
+Find a way to verify whether or not our own implementation of the RP pretext task is working or not (should in theory, but you never know).
+At the moment: training a model with RP sampling 'works', i.e. the model learns but only for a couple of epochs. It is bottlenecked somewhere.
+Either the model is too complex? (I doubt it, since we hvae more complex data than the Banville paper) and in that case it is too simple, so we need to find
+modifications on one of the models to allow it to learn more of the data (increase number of neurons, increase depth, increase number of filters in convolutions etc)
+just play around and find something that allows for further learning. It's an iterative process.
+
+If one can make the braindecode library work with our data that would be great. As of right now we can get as far as starting to train, but the library throws an error
+in the RP sampling because of something we don't know really. Maybe this is a quick fix if someone finds where to look. See the latest code on the GCP notebook for 
+braindecode MEG pipeline.
+
+Visualizing the extracted features/embeddings from MEG data using t-SNE was difficult, we don't really know how to label the extracted components. 
+Someone please research how we should do this. If we get this working then we can visualize the extracted features and actually verify whether or not our 
+pretext task is doing something, i.e. the extracted features show something insightful. 
+
+Research and implement how to preprocess our MEG data. Whitening was an idea by Erik and something we tried, but didn't seem to change anything really. 
+The Banville paper mentions scaling some of the values based on their physical characteristics, for example scaling so that we are dealing with micro tesla 
+instead of some really small number. Look at useful conventions for MEG.
+
+We are thinking about if it is necessary or not to decrease the amount of channels used when training. Right now we have 306 channels combined and this is like 1500%
+increase compared to the Banville experiments. Perhaps some dimensionality reduction/transformation using PCA? Or simply just ignoring some? Look into this.
+
+
+Add more that is TODO if you think of something:
+-
+
+
+
+( Good to remember is that we don't have to produce any sort of results. Learning is what's important. If we focus on the above tasks and try to learn some approaches
+  to dealing with these issues I think we have a lot of stable ground to write a report on that Danica will be happy about!)
