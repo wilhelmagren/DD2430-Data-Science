@@ -17,7 +17,6 @@ import numpy as np
 import pandas as pd
 
 from torch.utils.data import Dataset, ConcatDataset, Sampler
-from braindecode.datasets.base import BaseDataset, BaseConcatDataset
 from sklearn.model_selection import LeavePGroupsOut
 
 
@@ -158,11 +157,12 @@ class RelativePositioningSampler(Sampler):
     tau_neg:
         number of windows in negative context, both before and after?
     """
-    def __init__(self, data, n_examples, tau_pos, tau_neg):
+    def __init__(self, data, n_examples, tau_pos, tau_neg, batch_size):
         self.data = data
         self.n_examples = n_examples
         self.tau_pos = tau_pos
         self.tau_neg = tau_neg
+        self.batch_size = batch_size
         
         if len(data) != n_examples:
             raise ValueError('n_examples not equal to number of samples in data')
@@ -193,71 +193,38 @@ class RelativePositioningSampler(Sampler):
          |        |   |     |     |   |        |
         lnl      rnl  lp    idx   rp lnr      rnr
         """
-        positive_idx = np.random.randint(0, len(self) - 1)
-        negative_idx = np.random.randint(max(0, positive_idx - self.tau_neg - 1), min(positive_idx + self.tau_pos + 1, len(self)))
-        left_positive_context_idx = max(0, positive_idx - self.tau_pos)
-        left_negative_context_idx = max(0, left_positive_context_idx - 1 - self.tau_neg)
-        right_positive_context_idx = min(positive_idx + self.tau_pos, len(self) - 1)
-        right_negative_context_idx = min(right_positive_context_idx + self.tau_neg, len(self) - 1)
-        label = 1.
-        if left_negative_context_idx <= negative_idx <= left_positive_context_idx - 1:
-            # print("im here, pos={}, neg={}".format(positive_idx, negative_idx))
-            label = 0.
-        if left_positive_context_idx <= negative_idx <= right_positive_context_idx:
-            # print("im here, pos={}, neg={}".format(positive_idx, negative_idx))
+        batch_pos = list()
+        batch_neg = list()
+        batch_labels = list()
+        for _ in range(self.batch_size):
+            positive_idx = np.random.randint(0, len(self) - 1)
+            negative_idx = np.random.randint(max(0, positive_idx - self.tau_neg - 1), min(positive_idx + self.tau_pos + 1, len(self)))
+            left_positive_context_idx = max(0, positive_idx - self.tau_pos)
+            left_negative_context_idx = max(0, left_positive_context_idx - 1 - self.tau_neg)
+            right_positive_context_idx = min(positive_idx + self.tau_pos, len(self) - 1)
+            right_negative_context_idx = min(right_positive_context_idx + self.tau_neg, len(self) - 1)
             label = 1.
-        if right_positive_context_idx + 1 <= negative_idx <= right_negative_context_idx:
-            # print("im here, pos={}, neg={}".format(positive_idx, negative_idx))
-            label = 0.
-
-        return positive_idx, negative_idx, label 
-
-    
-class RelativePositioningDataset(BaseConcatDataset):
-    def __init__(self, list_of_ds):
-        super().__init__(list_of_ds)
-        self.return_pair = True
-       
-    def __getitem__(self, idx):
-        if self.return_pair:
-            indx1, indx2, y = index
-            return (super().__getitem__(ind1)[0],
-                    super().__getitem__(ind2)[0]), y
-        else:
-            return super().__getitem__(idx)
-     
-    @property
-    def return_pair(self):
-        return self._return_pair
-    
-    @return_pair.setter
-    def return_pair(self, value):
-        self._return_pair = value
-
-
-class EpochsDataset(Dataset):
-    def __init__(self, epochs_data, label, subject_id, state_id, transform=None):
-        self.epochs_labels = np.array(list(label for _ in range(len(epochs_data))))
-        assert len(epochs_data) == len(self.epochs_labels)
-        print(epochs_data.shape)
-        self.epochs_data = epochs_data
-        self.transform = transform
-        self.subject_id = subject_id
-        self.state_id = state_id
+            if left_negative_context_idx <= negative_idx <= left_positive_context_idx - 1:
+                # print("im here, pos={}, neg={}".format(positive_idx, negative_idx))
+                label = 0.
+            if left_positive_context_idx <= negative_idx <= right_positive_context_idx:
+                # print("im here, pos={}, neg={}".format(positive_idx, negative_idx))
+                label = 1.
+            if right_positive_context_idx + 1 <= negative_idx <= right_negative_context_idx:
+                # print("im here, pos={}, neg={}".format(positive_idx, negative_idx))
+                label = 0.
+            
+            batch_pos.append(self.data[positive_idx][None])
+            batch_neg.append(self.data[negative_idx][None])
+            batch_labels.append(label)
         
-    def __len__(self):
-        return len(self.epochs_labels)
-    
-    def __getitem__(self, idx):
-        X, y = self.epochs_data[idx], self.epochs_labels[idx]
-        print('before', X.shape)
-        if self.transform is not None:
-            X = self.transform(X)
-        X = torch.as_tensor(X[None, ...])
-        print('after',X.shape)
-        return X, y
+        XPOS = torch.Tensor(np.concatenate(batch_pos, axis=0))
+        XNEG = torch.Tensor(np.concatenate(batch_neg, axis=0))
+        Y = torch.Tensor(np.array(batch_labels))
 
+        return XPOS, XNEG, Y
 
+   
 class DatasetMEG(Dataset):
     """!!! MEG sleep deprivation dataset (2021)
     The overaching aim of this project was to study the effect of partial sleep 
