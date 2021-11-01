@@ -4,27 +4,25 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm
-from skorch.helper import predefined_split
-from skorch.callbacks import Checkpoint, EarlyStopping, EpochScoring
-from braindecode import EEGClassifier
 from torch import nn
-from braindecode.models import SleepStagerChambon2018
+from stagernet import StagerNet
+from utils import DatasetMEG, RelativePositioningSampler
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 torch.manual_seed(98)
 np.random.seed(98)
 sfreq = 200
-from utils import DatasetMEG, RelativePositioningSampler
-dataset = DatasetMEG(subject_ids=list(range(2,21)), state_ids=[1, 2, 3, 4], t_window=10)
-sampler = RelativePositioningSampler(dataset.X, len(dataset), tau_pos=6, tau_neg=20)
+
+dataset = DatasetMEG(subject_ids=list(range(2,34)), state_ids=[1], t_window=10)
+sampler = RelativePositioningSampler(dataset.X, len(dataset), tau_pos=6, tau_neg=20, batch_size=16)
+
 if device == 'cuda':
     torch.backends.cudnn.benchmark = True
 
 # Extract number of channels and time steps from dataset
 n_channels, input_size_samples = dataset[0][0].shape
 emb_size = 100
-
-emb = SleepStagerChambon2018(
+emb = StagerNet(
     n_channels,
     sfreq,
     n_classes=emb_size,
@@ -49,7 +47,7 @@ class ContrastiveNet(nn.Module):
         return self.clf(torch.abs(z1 - z2)).flatten()
 
 
-lr = 1e-2
+lr = 1e-4
 batch_size = 64  # isn't used rn
 n_epochs = 10
 num_workers = 0 
@@ -59,16 +57,17 @@ optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 print("[*]  starting training on device {}".format(device))
 for epoch in range(n_epochs):
     tloss, tacc = 0., 0.
-    for batch, (anchor, sample, label) in tqdm(enumerate(sampler), total=len(sampler), desc='epoch={}/{}'.format(epoch+1, n_epochs)):
-        anchor, sample, label = torch.unsqueeze(torch.Tensor(dataset[anchor][0]), 0).to(device), torch.unsqueeze(torch.Tensor(dataset[sample][0]), 0).to(device), torch.unsqueeze(torch.Tensor([label]), 0).to(device)
+    for batch, (anchors, samples, labels) in tqdm(enumerate(sampler), total=len(sampler), desc='epoch={}/{}'.format(epoch+1, n_epochs)):
+        anchors, samples, labels = anchors.to(device), samples.to(device), torch.unsqueeze(labels.to(device), dim=1)
         optimizer.zero_grad()
-        output = model((anchor, sample))
-        output = torch.sigmoid(output)
-        tacc += 1. if output >= 0.5 and label[0][0] == 1. else 0.
-        loss = criterion(torch.unsqueeze(output, 0), label)
+        outputs = model((anchors, samples))
+        outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
+        loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
         tloss += loss.item()
+        _, pred = torch.max(outputs.data, 1)
+        tacc += (pred == labels).sum().item()/outputs.shape[0]
     print("[*]  epoch={:02d}  tloss={:.3f}  tacc={:.2f}%".format(epoch+1, tloss/len(sampler), 100*tacc/len(sampler)))
 
     
