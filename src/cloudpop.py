@@ -17,9 +17,9 @@ from braindecode.datasets import BaseConcatDataset
 from sklearn.model_selection import train_test_split
 
 subjects = np.unique(windows_dataset.description['subject'])
-subj_train = windows_dataset
-#subj_train, subj_valid = train_test_split(
-#     subjects, test_size=0.4, random_state=random_state)
+# subj_train = windows_dataset
+subj_train, subj_valid = train_test_split(
+     subjects, test_size=0.4, random_state=random_state)
 #subj_valid, subj_test = train_test_split(
 #     subj_test, test_size=0.5, random_state=random_state)
 
@@ -46,7 +46,12 @@ class RelativePositioningDataset(BaseConcatDataset):
         self._return_pair = value
 
 
-splitted = {'train': subj_train}
+split_ids = {'train': subj_train, 'valid': subj_valid}
+splitted = dict()
+for name, values in split_ids.items():
+    splitted[name] = RelativePositioningDataset(
+        [ds for ds in windows_dataset.datasets if ds.description['subject'] in values])
+
 
 from braindecode.samplers.ssl import RelativePositioningSampler
 
