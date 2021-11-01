@@ -29,21 +29,23 @@ def get_state_id(filepath):
         return 4
     raise ValueError
 
-    
-def fetch_data(subject_ids, state_ids):
+
+def fetch_data(subject_ids, state_ids, verbose=False):
     """ fetches all raw.fif MEG files
     and returns a list of triplets. each triplet
     containing (subject_id, state_id, filepath).
     """
+    print("[*]  fetching filepaths") if verbose else None
     subject_ids = list(map(lambda x: '0'+str(x) if len(str(x)) != 2 else str(x), subject_ids))
     stateid_map = {1: 'ses-con_task-rest_ec',
                    2: 'ses-con_task-rest_eo',
                    3: 'ses-psd_task-rest_ec',
                    4: 'ses-psd_task-rest_eo'}
     
-    homedir = os.path.expanduser('~')
-    files = list(os.listdir(os.path.join(homedir, 'project/datasetmeg2021-subj-01--03/')))
-    files = list(os.path.join(homedir, 'project/datasetmeg2021-subj-01--03/'+f) for f in files if get_subject_id(f) in subject_ids)
+    # homedir = os.path.expanduser('~')
+    # files = list(os.listdir(os.path.join(homedir, 'project/datasetmeg2021-subj-01--03/')))
+    files = list(os.listdir(RELATIVE_DIRPATH))
+    files = list(os.path.join(RELATIVE_DIRPATH, f) for f in files if get_subject_id(f) in subject_ids)
     
     subject_state_files = list()
     for file in files:
@@ -51,7 +53,8 @@ def fetch_data(subject_ids, state_ids):
             if stateid_map[state] in file:
                 subject_state_files.append(file)
     
-    subject_state_files = list((get_subject_id(f), get_state_id(f), f) for f in subject_state_files)
+    subject_state_files = list((get_subject_id(f), get_state_id(f), get_subject_gender(f), get_subject_age(f), f) for f in subject_state_files)
+    print("[*]  returning filepaths") if verbose else None
     return subject_state_files
 
 
