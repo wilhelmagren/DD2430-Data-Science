@@ -14,7 +14,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 torch.manual_seed(98)
 np.random.seed(98)
 sfreq = 200
-from utils_meg import DatasetMEG, RelativePositioningSampler
+from utils import DatasetMEG, RelativePositioningSampler
 dataset = DatasetMEG(subject_ids=[2, 3], state_ids=[1, 2, 3, 4], t_window=10)
 sampler = RelativePositioningSampler(dataset.X, len(dataset), tau_pos=6, tau_neg=20)
 if device == 'cuda':
