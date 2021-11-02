@@ -16,8 +16,8 @@ torch.manual_seed(98)
 np.random.seed(98)
 sfreq = 200
 
-dataset = DatasetMEG(subject_ids=list(range(2,34)), state_ids=[1], t_window=5)
-sampler = RelativePositioningSampler(dataset.X, len(dataset), tau_pos=10, tau_neg=50, batch_size=32)
+dataset = DatasetMEG(subject_ids=list(range(2,5)), state_ids=[1], t_window=5)
+sampler = RelativePositioningSampler(dataset.X, dataset.Y, len(dataset), tau_pos=10, tau_neg=50, batch_size=32)
 
 if device == 'cuda':
     torch.backends.cudnn.benchmark = True
@@ -51,7 +51,7 @@ class ContrastiveNet(nn.Module):
 
 
 lr = 1e-4
-n_epochs = 10
+n_epochs = 2
 num_workers = 0 
 model = ContrastiveNet(emb, emb_size).to(device)
 criterion = torch.nn.BCELoss()
@@ -82,9 +82,15 @@ with torch.no_grad():
         embeddings.append(embedding[None])
 
 embeddings = np.concatenate(torch.cat(embeddings, 0).cpu().detach().numpy(), axis=0)
+Y = list(chrippe[1] for chrippe in sampler.labels)
 tsne = TSNE(n_components=2)
 components = tsne.fit_transform(embeddings)
+
 fig, ax = plt.subplots()
-ax.scatter(components[0], components[1])
+colors = {'0':'orange', '1':'blue'}
+genders = {'0':'F', '1':'M'}
+for idx, point in enumerate(components):
+    ax.scatter(point[0], point[1], alpha=0.9, color=colors[Y[idx]], label=genders[Y[idx]])
+
 plt.savefig('tsnechrippe.png')
     
