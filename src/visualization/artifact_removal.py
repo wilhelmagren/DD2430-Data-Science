@@ -7,9 +7,10 @@ import numpy as np
 from mne.preprocessing import ICA, create_eog_epochs, create_ecg_epochs
 
 
-raw_fname = '../data/data-ds-200Hz/sub-02_ses-con_task-rest_oc_ds_raw.fif'
+raw_fname = '../../data/data-ds-200Hz/sub-02_ses-con_task-rest_eo_ds_raw.fif'
 raw = mne.io.read_raw_fif(raw_fname, preload=True)
 
+raw.plot(duration=30, n_channels=10, remove_dc=False, block=True)
 
 #  mne ICA is sensitive to low frequencies, high pass filter it at 1Hz
 raw.filter(1., None, n_jobs=1, fir_design='firwin')
