@@ -21,17 +21,22 @@ from sklearn.model_selection import LeavePGroupsOut
 
 
 RELATIVE_DIRPATH = '../data/data-ds-200HZ/'
+STATEID_MAP = {1: 'ses-con_task-rest_ec',
+               2: 'ses-con_task-rest_eo',
+               3: 'ses-psd_task-rest_ec',
+               4: 'ses-psd_task-rest_eo'}
 
 
 
-def WPRINT(module, msg):
-    print("[*]  {}  {}".format(module, msg))
 
-def EPRINT(module, msg):
-    print("[!]  {}  {}".format(module, msg))
+def WPRINT(msg, instance):
+    print("[*]  {}\t{}".format(str(instance), msg)) if instance._verbose else None
+
+def EPRINT(msg, instance):
+    print("[!]  {}\t{}".format(str(instance), msg))
 
 
-def create_windows(raw, t_window=15.):
+def create_epochs(raw, t_window=15.):
     """
     MNE CAN'T OPEN THE FILE: sub-01_ses-psd_task-rest_eo_ds_raw.fif
     """
@@ -46,7 +51,7 @@ def create_windows(raw, t_window=15.):
     for i in range(n_windows):
         cropped_time_point_right = (i + 1) * n_window_samples
         cropped_time_point_left  = i * n_window_samples
-        tmp = raw_np[:2, cropped_time_point_left:cropped_time_point_right]
+        tmp = raw_np[:50, cropped_time_point_left:cropped_time_point_right]
         windows.append((tmp, label))
     WPRINT('Epochs', 'returning windows')
     return windows

@@ -58,7 +58,7 @@ def accuracy(target, pred):
     
 
 lr = 1e-4
-n_epochs = 5
+n_epochs = 10 
 num_workers = 0 
 model = ContrastiveNet(emb, emb_size).to(device)
 criterion = torch.nn.BCELoss()
