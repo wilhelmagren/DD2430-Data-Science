@@ -14,57 +14,19 @@ Last edited: 03-11-2021
 """
 import os
 import mne
+import time
 
 from collections import defaultdict
 from torch.utils.data import Dataset
-from utils import WPRINT, EPRINT, RELATIVE_DIRPATH, STATEID_MAP
+from mne.preprocessing import ICA, create_eog_epochs, create_ecg_epochs
+from utils import WPRINT, EPRINT, RELATIVE_DIRPATH, STATEID_MAP, get_subject_id, get_recording_id, get_subject_gender, get_subject_age
 
-
-"""!!! helper functions for _fetch_data func found in class DatasetMEG//
-    get_subject_id(string)      :: string
-    get_recoding_id(string)     :: int
-    get_subject_gender(string)  :: int
-    get_subject_age(string)     :: int
-    
-    all functions may throw ValueErrors if it can't extract the wanted label
-    from the provided file. this may be caused by incorrect file formatting 
-    or something else.
-"""
-def get_subject_id(filepath):
-    return filepath.split('_')[0].split('-')[-1]
-
-def get_recording_id(filepath):
-    if 'ses-con_task-rest_ec' in filepath:
-        return 1
-    if 'ses-con_task-rest_eo' in filepath:
-        return 2
-    if 'ses-psd_task-rest_ec' in filepath:
-        return 3
-    if 'ses-psd_task-rest_eo' in filepath:
-        return 4
-    raise ValueError
-
-def get_subject_gender(f):
-    id = get_subject_id(f)
-    with open('../data/subjects.tsv', 'r') as fil:
-        for line in fil.readlines():
-            if id in line:
-                return 0 if line.split('\t')[2] == 'F' else 1
-    raise ValueError
-
-def get_subject_age(f):
-    id = get_subject_id(f)
-    with open('../data/subjects.tsv', 'r') as fil:
-        for line in fil.readlines():
-            if id in line:
-                return int(line.split('\t')[1])
-    raise ValueError
 
 
 class DatasetMEG(Dataset):
     """!!! MEG sleep deprivation dataset (2021)
     The overaching aim of this project was to study the effect of partial sleep 
-    deprivation on neurophysiological processes using Magnetoencephalography (MEG).
+    deprivation on neurophysiologself._ICAl processes using Magnetoencephalography (MEG).
     
     It was a within-subjects design, with participants performing the same tasks twice
     - once after normal sleep and once after two nights of sleep restricted to 
@@ -115,7 +77,7 @@ class DatasetMEG(Dataset):
         integer specifying how many channels of the MEG data to include.
         the data contains 306 MEG channels consistuted by Magnet- and
         Gradiometer electrodes/sensors but this is an extremely large number,
-        and is most likely not applicable to train on. So choose the number
+        and is most likely not applself._ICAble to train on. So choose the number
         of channels, and possibly what channels, wisely.
 
     verbose: bool | None
@@ -129,6 +91,7 @@ class DatasetMEG(Dataset):
         self._verbose = kwargs.get('verbose', False)
         self._n_channels = kwargs.get('n_channels', 2)
         self._n_samples_per_epoch = int(self._sfreq * self._t_epoch)
+        self._ICA = self._init_ICA(**kwargs)
         self.X, self.Y = self._load_data(subj_ids, reco_ids)
 
     def __str__(self):
@@ -143,6 +106,14 @@ class DatasetMEG(Dataset):
     @property
     def shape(self):
         return '({}, {}, {})'.format(self._n_recordings, self._n_channels, self._n_epochs)
+
+    def _init_ICA(self, **kwargs):
+        self._decim = kwargs.get('decim', 3)
+        method = kwargs.get('method', 'fastica')
+        n_components = kwargs.get('n_components', 25)
+        random_state = kwargs.get('random_state', 69)
+        self._ICA = ICA(n_components=n_components, method=method, random_state=random_state)
+        return self._ICA
 
     def _load_data(self, subj_ids, reco_ids, **kwargs):
         WPRINT('loading MEG data from .fif files', self)
@@ -169,8 +140,9 @@ class DatasetMEG(Dataset):
 
     def _load_raw(self, fname, subj_id, reco_id, drop_channels=False, **kwargs):
         WPRINT('loading raw .fif file with MNE...', self)
-        raw = mne.io.read_raw_fif(fname)
-        exclude = list(c for c in list(map(lambda c: None if 'MEG' in c or 'EOG' in c or 'ECG' in c else c, raw.info['ch_names'])) if c)
+        raw = mne.io.read_raw_fif(fname, preload=True)
+        raw = self._ICA_artifact_removal(raw)
+        exclude = list(c for c in list(map(lambda c: None if 'MEG' in c else c, raw.info['ch_names'])) if c)
         raw.drop_channels(exclude) if drop_channels else None
         raw.info['subject_info'] = {'id': int(subj_id), 'reco': int(reco_id)}
         return raw
@@ -213,5 +185,40 @@ class DatasetMEG(Dataset):
         subject_recording_files = list((get_subject_id(f), get_recording_id(f), get_subject_gender(f), get_subject_age(f), f) for f in subject_recording_files)
         WPRINT('done fetching MEG filepaths', self)
         return subject_recording_files
+    
+    def _ICA_artifact_removal(self, raw, **kwargs):
+        n_jobs = kwargs.get('n_jobs', 1)
+        fir_design = kwargs.get('fir_design', 'firwin')
+        raw.filter(1., None, n_jobs=n_jobs, fir_design=fir_design)
+        picks_meg = mne.pick_types(raw.info, meg=True, eeg=False, eog=False, stim=False, exclude='bads')
+        reject = dict(mag=5e-12, grad=4000e-13)
+        self._ICA.fit(raw, picks=picks_meg, decim=self._decim, reject=reject)
+        WPRINT(self._ICA, self)
+
+        eog_epochs = create_eog_epochs(raw, reject=reject)
+        eog_inds, eog_scores = self._ICA.find_bads_eog(eog_epochs)
+
+        ecg_epochs = create_ecg_epochs(raw, reject=reject)
+        ecg_inds, ecg_scores = self._ICA.find_bads_ecg(ecg_epochs)
+
+        WPRINT('{} bad EOG component(s),  {} bad ECG component(s)'.format(len(eog_inds), len(ecg_inds)), self)
+        self._ICA.exclude.extend(eog_inds)
+        self._ICA.exclude.extend(ecg_inds)
+
+        self._ICA.apply(raw)
+        WPRINT('done cleaning artifacts using ICA', self)
+        return raw
+
+
+if __name__ == '__main__':
+    """
+    RUNNING THE BELOW CODE TAKES ~11 minutes, and required like 10GB of RAM for
+    allocating numpy arrays for epochs. we probabily won't use all data anyway,
+    but this is the absolute max the programs will allocate.
+    """
+    t_start = time.time()
+    dset = DatasetMEG(subj_ids=list(range(2, 34)), reco_ids=list(range(1, 5)), verbose=True)
+    print(dset.shape)
+    print('loading+epoching+cleaning took: {}s'.format(time.time() - t_start))
 
 
