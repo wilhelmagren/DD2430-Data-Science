@@ -5,32 +5,34 @@ import matplotlib.pyplot as plt
 
 from tqdm import tqdm
 from torch import nn
-from stagernet import StagerNet
-from shallownet import ShallowNet
-from utils import WPRINT, EPRINT, DatasetMEG, RelativePositioningSampler
+from dataset import DatasetMEG
+from utils import WPRINT, EPRINT, extract_embeddings, viz_tSNE
 from sklearn.manifold import TSNE
-
+from models.shallownet import ShallowNet
+from models.stagernet import StagerNet
+from samplers import RelativePositioningSampler
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 torch.manual_seed(98)
 np.random.seed(98)
 sfreq = 200
 
-dataset = DatasetMEG(subject_ids=list(range(2,11)), state_ids=[1], t_window=5)
-sampler = RelativePositioningSampler(dataset.X, dataset.Y, len(dataset), tau_pos=4, tau_neg=50, batch_size=32)
+dataset = DatasetMEG(subj_ids=list(range(2, 23)), reco_ids=[2, 4], t_epoch=5., n_channels=10, verbose=True)
+sampler = RelativePositioningSampler(dataset.X, dataset.Y, len(dataset), tau_pos=10, tau_neg=50, batch_size=128)
 
 if device == 'cuda':
-    WPRINT('Torch', 'training on cuda')
     torch.backends.cudnn.benchmark = True
 
 # Extract number of channels and time steps from dataset
 n_channels, input_size_samples = dataset[0][0][0].shape
+print('n_channels={}   input_size_samples={}'.format(n_channels, input_size_samples))
+print('dataset shape={}'.format(dataset.shape))
 emb_size = 100
 emb = StagerNet(
     n_channels,
     sfreq,
     n_classes=emb_size,
-    n_conv_chs=40,
+    n_conv_chs=8,
     input_size_s=input_size_samples / sfreq,
     dropout=0.5,
     apply_batch_norm=True,
@@ -58,15 +60,33 @@ def accuracy(target, pred):
     
 
 lr = 1e-4
-n_epochs = 10 
+n_epochs = 5 
 num_workers = 0 
 model = ContrastiveNet(emb, emb_size).to(device)
 criterion = torch.nn.BCELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+print('[*]  pre-testing model for "baseline"')
+with torch.no_grad():
+    tloss, tacc = 0., 0.
+    for batch, (anchors, samples, labels) in tqdm(enumerate(sampler), total=len(dataset), desc='epoch={}/{}'.format(0, n_epochs)):
+        anchors, samples, labels = anchors.to(device), samples.to(device), torch.unsqueeze(labels.to(device), dim=1)
+        optimizer.zero_grad()
+        outputs = model((anchors, samples))
+        outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
+        loss = criterion(outputs, labels)
+        #loss.backward()
+        #optimizer.step()
+        tloss += loss.item()
+        tacc += accuracy(labels, outputs)
+    print("[*]  epoch={:02d}  tloss={:.3f}  tacc={:.2f}%".format(0, tloss/len(dataset), 100*tacc/len(dataset)))
+
+embeddings, Y = extract_embeddings(emb, device, sampler)
+viz_tSNE(embeddings, Y, fname='t-SNE_emb_pre.png')
+
 print("[*]  starting training on device {}".format(device))
 for epoch in range(n_epochs):
     tloss, tacc = 0., 0.
-    for batch, (anchors, samples, labels) in tqdm(enumerate(sampler), total=dataset.n_windows, desc='epoch={}/{}'.format(epoch+1, n_epochs)):
+    for batch, (anchors, samples, labels) in tqdm(enumerate(sampler), total=len(dataset), desc='epoch={}/{}'.format(epoch+1, n_epochs)):
         anchors, samples, labels = anchors.to(device), samples.to(device), torch.unsqueeze(labels.to(device), dim=1)
         optimizer.zero_grad()
         outputs = model((anchors, samples))
@@ -76,27 +96,9 @@ for epoch in range(n_epochs):
         optimizer.step()
         tloss += loss.item()
         tacc += accuracy(labels, outputs)
-    print("[*]  epoch={:02d}  tloss={:.3f}  tacc={:.2f}%".format(epoch+1, tloss/dataset.n_windows, 100*tacc/dataset.n_windows))
+    print("[*]  epoch={:02d}  tloss={:.3f}  tacc={:.2f}%".format(epoch+1, tloss/len(dataset), 100*tacc/len(dataset)))
 
+embeddings, Y = extract_embeddings(emb, device, sampler)
+viz_tSNE(embeddings, Y)
 
-# VISUALIZE THE EMBEDDER FEATURES
-embeddings = list()
-with torch.no_grad():
-    for batch, (anchors, _, _) in tqdm(enumerate(sampler), total=len(sampler), desc='generating embeddings'):
-        anchors = anchors.to(device)
-        embedding = emb(anchors[0, :, :][None])
-        embeddings.append(embedding[None])
-
-embeddings = np.concatenate(torch.cat(embeddings, 0).cpu().detach().numpy(), axis=0)
-Y = list(chrippe[1] for chrippe in sampler.labels)
-tsne = TSNE(n_components=2)
-components = tsne.fit_transform(embeddings)
-
-fig, ax = plt.subplots()
-colors = {'0':'orange', '1':'blue'}
-genders = {'0':'F', '1':'M'}
-for idx, point in enumerate(components):
-    ax.scatter(point[0], point[1], alpha=0.9, color=colors[Y[idx]], label=genders[Y[idx]])
-
-plt.savefig('tsnechrippe.png')
-    
+  

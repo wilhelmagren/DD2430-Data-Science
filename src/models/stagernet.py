@@ -87,12 +87,7 @@ class StagerNet(nn.Module):
         if not return_feats:
             self.fc = nn.Sequential(
                 nn.Dropout(dropout),
-                nn.Linear(self.len_last_layer, 512),
-                nn.BatchNorm1d(512),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-                nn.Linear(512, n_classes),
-                nn.ReLU()
+                nn.Linear(self.len_last_layer, n_classes),
             )
 
     def _len_last_layer(self, n_channels, input_size):

@@ -121,11 +121,10 @@ class DatasetMEG(Dataset):
         X, Y = defaultdict(list), defaultdict(list)
         for reco_idx, (subj_id, reco_id, subj_gender, subj_age, fname) in enumerate(raw_fpaths):
             raw = self._load_raw(fname, subj_id, reco_id, drop_channels=True)
-            epochs = self._create_epochs(raw, self._n_channels, self._t_epoch)  
+            epochs = self._create_epochs(raw, self._t_epoch)  
             for epoch, label in zip(epochs['data'], epochs['labels']):
                 X[reco_idx].append(epoch)
-                Y[reco_idx].append(label)
-
+                Y[reco_idx].append((label, subj_gender, subj_age))
 
         self._n_recordings = len(X.keys())
         self._n_epochs = sum(list(len(epochs) for epochs in Y.values()))
@@ -147,7 +146,7 @@ class DatasetMEG(Dataset):
         raw.info['subject_info'] = {'id': int(subj_id), 'reco': int(reco_id)}
         return raw
 
-    def _create_epochs(self, raw, n_channels, t_epoch, **kwargs):
+    def _create_epochs(self, raw, t_epoch, **kwargs):
         """
         MNE CAN'T OPEN THE FILE: sub-01_ses-psd_task-rest_eo_ds_raw.fif
         """
@@ -164,8 +163,8 @@ class DatasetMEG(Dataset):
         for i in range(n_epochs):
             cropped_time_point_right = (i + 1) * n_epoch_samples
             cropped_time_point_left  = i * n_epoch_samples
-            tmp = raw_np[:n_channels, cropped_time_point_left:cropped_time_point_right]
-            epochs['data'].append(tmp)
+            epoch = raw_np[:self._n_channels, cropped_time_point_left:cropped_time_point_right]
+            epochs['data'].append(epoch)
             epochs['labels'].append(label)
         WPRINT('returning {} epochs'.format(len(epochs['data'])), self)
         return epochs
@@ -191,7 +190,7 @@ class DatasetMEG(Dataset):
         fir_design = kwargs.get('fir_design', 'firwin')
         raw.filter(1., None, n_jobs=n_jobs, fir_design=fir_design)
         picks_meg = mne.pick_types(raw.info, meg=True, eeg=False, eog=False, stim=False, exclude='bads')
-        reject = dict(mag=5e-12, grad=4000e-13)
+        reject = dict(mag=5e-11, grad=4000e-13)
         self._ICA.fit(raw, picks=picks_meg, decim=self._decim, reject=reject)
         WPRINT(self._ICA, self)
 
