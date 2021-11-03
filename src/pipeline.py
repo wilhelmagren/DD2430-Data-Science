@@ -7,7 +7,7 @@ from tqdm import tqdm
 from torch import nn
 from stagernet import StagerNet
 from shallownet import ShallowNet
-from utils import DatasetMEG, RelativePositioningSampler
+from utils import WPRINT, EPRINT, DatasetMEG, RelativePositioningSampler
 from sklearn.manifold import TSNE
 
 
@@ -16,20 +16,21 @@ torch.manual_seed(98)
 np.random.seed(98)
 sfreq = 200
 
-dataset = DatasetMEG(subject_ids=list(range(2,5)), state_ids=[1], t_window=5)
-sampler = RelativePositioningSampler(dataset.X, dataset.Y, len(dataset), tau_pos=10, tau_neg=50, batch_size=32)
+dataset = DatasetMEG(subject_ids=list(range(2,11)), state_ids=[1], t_window=5)
+sampler = RelativePositioningSampler(dataset.X, dataset.Y, len(dataset), tau_pos=4, tau_neg=50, batch_size=32)
 
 if device == 'cuda':
+    WPRINT('Torch', 'training on cuda')
     torch.backends.cudnn.benchmark = True
 
 # Extract number of channels and time steps from dataset
-n_channels, input_size_samples = dataset[0][0].shape
+n_channels, input_size_samples = dataset[0][0][0].shape
 emb_size = 100
 emb = StagerNet(
     n_channels,
     sfreq,
     n_classes=emb_size,
-    n_conv_chs=60,
+    n_conv_chs=40,
     input_size_s=input_size_samples / sfreq,
     dropout=0.5,
     apply_batch_norm=True,
@@ -50,8 +51,14 @@ class ContrastiveNet(nn.Module):
         return self.clf(torch.abs(z1 - z2)).flatten()
 
 
+def accuracy(target, pred):
+    target, pred = torch.flatten(target), torch.flatten(pred)
+    pred = pred > 0.5
+    return (target == pred).sum().item() / target.size(0)
+    
+
 lr = 1e-4
-n_epochs = 2
+n_epochs = 5
 num_workers = 0 
 model = ContrastiveNet(emb, emb_size).to(device)
 criterion = torch.nn.BCELoss()
@@ -59,7 +66,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 print("[*]  starting training on device {}".format(device))
 for epoch in range(n_epochs):
     tloss, tacc = 0., 0.
-    for batch, (anchors, samples, labels) in tqdm(enumerate(sampler), total=len(sampler), desc='epoch={}/{}'.format(epoch+1, n_epochs)):
+    for batch, (anchors, samples, labels) in tqdm(enumerate(sampler), total=dataset.n_windows, desc='epoch={}/{}'.format(epoch+1, n_epochs)):
         anchors, samples, labels = anchors.to(device), samples.to(device), torch.unsqueeze(labels.to(device), dim=1)
         optimizer.zero_grad()
         outputs = model((anchors, samples))
@@ -68,9 +75,8 @@ for epoch in range(n_epochs):
         loss.backward()
         optimizer.step()
         tloss += loss.item()
-        #_, pred = torch.max(outputs.data, 1)
-        #tacc += (pred == labels).sum().item()/outputs.shape[0]
-    print("[*]  epoch={:02d}  tloss={:.3f}  tacc={:.2f}%".format(epoch+1, tloss/len(sampler), tacc/len(sampler)))
+        tacc += accuracy(labels, outputs)
+    print("[*]  epoch={:02d}  tloss={:.3f}  tacc={:.2f}%".format(epoch+1, tloss/dataset.n_windows, 100*tacc/dataset.n_windows))
 
 
 # VISUALIZE THE EMBEDDER FEATURES
