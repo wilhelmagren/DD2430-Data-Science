@@ -23,45 +23,19 @@ from sklearn.model_selection import LeavePGroupsOut
 RELATIVE_DIRPATH = '../data/data-ds-200HZ/'
 
 
-def whitening(X):
-    print(X)
-    sigma = np.cov(X, rowvar=True)
-    U, S, V = np.linalg.svd(sigma)
-    epsilon = 1e-5
-    ZCA = np.dot(U, np.dot(np.diag(1.0/np.sqrt(S + epsilon)), U.T))
-    X = X@ZCA
-    print(X)
-    return X
 
-def pick_states(dataset, subj_state_ids):
-    pick_idx = list()
-    for subject_id, state_id in subj_state_ids:
-        for i, ds in enumerate(dataset.datasets):
-            if (ds.subject_id == subject_id) and (ds.state_id == state_id):
-                pick_idx.append(i)
-    
-    remaining_idx = np.setdiff1d(range(len(dataset.datasets)), pick_idx)
-    pick_ds = ConcatDataset([dataset.datasets[i] for i in pick_idx])
-    if len(remaining_idx) > 0:
-        remaining_ds = ConcatDataset([dataset.datasets[i] for i in remaining_idx])
-    else:
-        remaining_ds = None
-    return pick_ds, remaining_ds
+def WPRINT(module, msg):
+    print("[*]  {}  {}".format(module, msg))
+
+def EPRINT(module, msg):
+    print("[!]  {}  {}".format(module, msg))
 
 
-def train_test_split(dataset, split=0.6):
-    groups = [getattr(ds, split_by) for ds in dataset.datasets]
-    train_idx, test_idx = next(LeavePGroupsOut(n_groups).split(X=groups, groups=groups))
-    train_ds = ConcatDataset([dataset.datasets[i] for i in train_idx])
-    test_ds = ConcatDataset([dataset.datasets[i] for i in test_idx])
-    return train_ds, test_ds
-
-
-def create_epochs(raw, t_window=15., verbose=False):
+def create_windows(raw, t_window=15.):
     """
     MNE CAN'T OPEN THE FILE: sub-01_ses-psd_task-rest_eo_ds_raw.fif
     """
-    print("[*]  extracting windows") if verbose else None
+    WPRINT('Epochs', 'creating windows')
     raw_np = raw.get_data()
     label = raw.info['subject_info']['state']
     sfreq = int(raw.info['sfreq'])
@@ -72,49 +46,13 @@ def create_epochs(raw, t_window=15., verbose=False):
     for i in range(n_windows):
         cropped_time_point_right = (i + 1) * n_window_samples
         cropped_time_point_left  = i * n_window_samples
-        tmp = raw_np[20:30, cropped_time_point_left:cropped_time_point_right]
+        tmp = raw_np[:2, cropped_time_point_left:cropped_time_point_right]
         windows.append((tmp, label))
-    print("[*]  returning windows") if verbose else None
+    WPRINT('Epochs', 'returning windows')
     return windows
-
-
-def extract_epochs(raw, window_duration=30., verbose=False):
-    print("[*]  extracing epochs") if verbose else None
-    sfreq = raw.info['sfreq']
-    tmin = -(window_duration - 1) / sfreq
-    window_size_samples = window_duration * sfreq  # should be 6000 for our setup
-    fake_events = create_fake_events(raw, window_size_samples, verbose=verbose)
-    print(type(fake_events))
-    epochs = mne.Epochs(raw, fake_events, baseline=None, tmin=tmin,
-                        tmax=0., preload=True, picks=None, reject=None, flat=None, on_missing='error')
-    print("[*]  returning epochs") if verbose else None
-    return epochs
-
-
-def create_fake_events(raw, window_size_samples, verbose=False):
-    """!!! func used for spoofing mne-python when 
-    creating mne.Epochs objects. we don't have 
-    events in our data, correlated to any channel,
-    since the subjects were just sitting there,
-    so create some random data for each timeslot in 
-    the epoch and pass it to mne.Epochs. we are
-    probably only interested in the data of the
-    Epoch anyway, i.e.  epoch.get_data()
-    """
-    print("[*]  creating fake events") if verbose else None
-    target = raw.get_data(picks='misc')
-    stop = raw.n_times + raw.first_samp
-    stops = np.nonzero((~np.isnan(target[0,:])))[0]
-    stops = stops[(stops < stop) & (stops >= window_size_samples)]
-    stops = stop.astype(int)
-    fake_events = [[stop, window_size_samples, -1] for stop in range(stops)]
-    print("[*]  returning fake events") if verbose else None
-    return np.array(fake_events, dtype=np.int16)
-
 
 def get_subject_id(filepath):
     return filepath.split('_')[0].split('-')[-1]
-
 
 def get_state_id(filepath):
     if 'ses-con_task-rest_ec' in filepath:
@@ -127,15 +65,13 @@ def get_state_id(filepath):
         return 4
     raise ValueError
 
-
 def get_subject_gender(f):
     id = get_subject_id(f)
     with open('../data/subjects.tsv', 'r') as fil:
         for line in fil.readlines():
             if id in line:
-                return line.split('\t')[2]
-    return -1
-
+                return 0 if line.split('\t')[2] == 'F' else 1
+    raise ValueError
 
 def get_subject_age(f):
     id = get_subject_id(f)
@@ -143,15 +79,14 @@ def get_subject_age(f):
         for line in fil.readlines():
             if id in line:
                 return line.split('\t')[1]
-    return -1
+    raise ValueError
 
-
-def fetch_data(subject_ids, state_ids, verbose=False):
+def fetch_data(subject_ids, state_ids):
     """ fetches all raw.fif MEG files
     and returns a list of triplets. each triplet
     containing (subject_id, state_id, filepath).
     """
-    print("[*]  fetching filepaths") if verbose else None
+    WPRINT('Dataset', 'fetching filepaths')
     subject_ids = list(map(lambda x: '0'+str(x) if len(str(x)) != 2 else str(x), subject_ids))
     stateid_map = {1: 'ses-con_task-rest_ec',
                    2: 'ses-con_task-rest_eo',
@@ -170,7 +105,7 @@ def fetch_data(subject_ids, state_ids, verbose=False):
                 subject_state_files.append(file)
     
     subject_state_files = list((get_subject_id(f), get_state_id(f), get_subject_gender(f), get_subject_age(f), f) for f in subject_state_files)
-    print("[*]  returning filepaths") if verbose else None
+    WPRINT('Dataset', 'returning filepaths')
     return subject_state_files
 
 
@@ -185,8 +120,9 @@ class RelativePositioningSampler(Sampler):
     tau_neg:
         number of windows in negative context, both before and after?
     """
-    def __init__(self, data, n_examples, tau_pos, tau_neg, batch_size):
+    def __init__(self, data, labels, n_examples, tau_pos, tau_neg, batch_size):
         self.data = data
+        self.labels = labels
         self.n_examples = n_examples
         self.tau_pos = tau_pos
         self.tau_neg = tau_neg
@@ -210,11 +146,13 @@ class RelativePositioningSampler(Sampler):
             0 for negative pair, i.e. from different contexts, or
             1 for positive pair
         """
-        for _ in range(self.n_examples):
-            yield self._sample_pair()
+        for recording in range(self.n_examples):
+            for anchor_window in range(len(self.data[recording])):
+                yield self._sample_pair(recording, anchor_window)
     
-    def _sample_pair(self):
+    def _sample_pair(self, recording, anchor_window):
         """
+        RELATIVE POSITIONING PRETEXT TASK
         tau_pos = 2
         tau_neg = 3
         [0, 0, 0, 0, (0, 0, 0, 0, 0), 0, 0, 0, 0]
@@ -224,13 +162,13 @@ class RelativePositioningSampler(Sampler):
         batch_pos = list()
         batch_neg = list()
         batch_labels = list()
+        positive_idx = anchor_window
         for _ in range(self.batch_size):
-            positive_idx = np.random.randint(0, len(self) - 1)
-            negative_idx = np.random.randint(max(0, positive_idx - self.tau_neg - 1), min(positive_idx + self.tau_pos + 1, len(self)))
+            negative_idx = np.random.randint(max(0, positive_idx - self.tau_neg - 1), min(positive_idx + self.tau_pos + 1, len(self.data[recording])))
             left_positive_context_idx = max(0, positive_idx - self.tau_pos)
             left_negative_context_idx = max(0, left_positive_context_idx - 1 - self.tau_neg)
-            right_positive_context_idx = min(positive_idx + self.tau_pos, len(self) - 1)
-            right_negative_context_idx = min(right_positive_context_idx + self.tau_neg, len(self) - 1)
+            right_positive_context_idx = min(positive_idx + self.tau_pos, len(self.data[recording]) - 1)
+            right_negative_context_idx = min(right_positive_context_idx + self.tau_neg, len(self.data[recording]) - 1)
             label = 1.
             if left_negative_context_idx <= negative_idx <= left_positive_context_idx - 1:
                 label = 0.
@@ -239,8 +177,8 @@ class RelativePositioningSampler(Sampler):
             if right_positive_context_idx + 1 <= negative_idx <= right_negative_context_idx:
                 label = 0.
             
-            batch_pos.append(self.data[positive_idx][None])
-            batch_neg.append(self.data[negative_idx][None])
+            batch_pos.append(self.data[recording][positive_idx][None])
+            batch_neg.append(self.data[recording][negative_idx][None])
             batch_labels.append(label)
         
         XPOS = torch.Tensor(np.concatenate(batch_pos, axis=0))
@@ -249,7 +187,7 @@ class RelativePositioningSampler(Sampler):
 
         return XPOS, XNEG, Y
 
-   
+
 class DatasetMEG(Dataset):
     """!!! MEG sleep deprivation dataset (2021)
     The overaching aim of this project was to study the effect of partial sleep 
@@ -294,40 +232,46 @@ class DatasetMEG(Dataset):
     from all found subject and state files. These are then concatenated together
     into one dataset called BaseConcatDataset. 
     """
-    def __init__(self, subject_ids=None, state_ids=None, t_window=15., verbose=False):
+    def __init__(self, subject_ids=None, state_ids=None, t_window=15., verbose=False, **kwargs):
         subject_ids = list(range(1, 4)) if subject_ids is None else subject_ids
         state_ids = list(range(1, 5)) if state_ids is None else state_ids
-        self.t_window = t_window
-        
-        all_epochs_datasets = list()
-        raw_paths = fetch_data(subject_ids, state_ids, verbose)
-        X, Y = [], []
-        for subject_id, state_id, subject_gender, subject_age, file in raw_paths:
-            raw = self._load_raw(file, subject_id, state_id, drop_channels=True)
-            epochs = create_epochs(raw, t_window=self.t_window, verbose=verbose)
-            for epoch in epochs:
-                X.append(epoch[0][None])
-                Y.append((epoch[1], subject_gender, subject_age))
-        X = np.concatenate(X, axis=0)
-        Y = np.array(Y)
-        print(Y.shape)
-        self.X, self.Y = X, Y
-        print("[*] loaded {} samples for DatasetMEG".format(len(Y)))
-    
+        self.X, self.Y = self._load_data(subject_ids, state_ids, t_window)
+
     def __getitem__(self, idx):
         return self.X[idx], self.Y[idx]
     
     def __len__(self):
-        return self.X.shape[0]
+        return len(self.X.keys())
+
+    def _load_data(self, subject_ids, state_ids, t_window):
+        WPRINT('Dataset', 'loading data')
+        raw_paths = fetch_data(subject_ids, state_ids)
+        X, Y = dict(), dict()
+        for idx, (subject_id, state_id, subject_gender, subject_age, fname) in enumerate(raw_paths):
+            X[idx], Y[idx] = list(), list()
+            raw = self._load_raw(fname, subject_id, state_id, drop_channels=True)
+            windows = create_windows(raw, t_window=t_window)
+            for window in windows:
+                X[idx].append(window[0])
+                Y[idx].append((window[1], subject_gender, subject_age))
+
+        self.n_recordings = len(Y.keys())
+        self.n_windows = sum(list(len(windows) for windows in Y.values()))
+    
+        if len(X.keys()) != len(Y.keys()):
+            raise ValueError('data and label lists are not the same length')
+        if len(Y.values()) != len(Y.keys()):
+            raise ValueError('key-value for labels are not 1:1')
+
+        WPRINT('Dataset', 'loaded {} recordings of MEG+EOG+ECG channels'.format(self.n_recordings))
+        WPRINT('Dataset', 'total number of windows from all recordings: {}'.format(self.n_windows))
+        return X, Y 
         
     @staticmethod
     def _load_raw(raw_fname, subject_id, state_id, drop_channels=False):
-        exclude = ['IASX+', 'IASX-', 'IASY+', 'IASY-', 'IASZ+', 'IASZ-', 'IAS_DX', 'IAS_X', 'IAS_Y', 'IAS_Z',
-                   'SYS201','CHPI001','CHPI002','CHPI003', 'CHPI004','CHPI005','CHPI006','CHPI007','CHPI008',
-                   'CHPI009', 'IAS_DY', 'MISC001','MISC002', 'MISC003','MISC004','MISC005', 'MISC006']
         raw = mne.io.read_raw_fif(raw_fname)
+        exclude = list(c for c in list(map(lambda c: c if 'MEG' in c or 'EOG' in c or 'ECG' in c else None, raw.info['ch_names'])) if c)
         raw.drop_channels(exclude) if drop_channels else None
         raw.info['subject_info'] = {'id':int(subject_id), 'state': int(state_id)}
         return raw
 
-    
