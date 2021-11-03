@@ -215,7 +215,3 @@ class DatasetMEG(Dataset):
         return subject_recording_files
 
 
-if __name__ == '__main__':
-    dset = DatasetMEG(subj_ids=[2, 3, 4, 5], reco_ids=[1, 2], n_channels=10, verbose=True)
-    print(dset.shape)
-
