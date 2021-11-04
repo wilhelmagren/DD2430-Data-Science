@@ -17,21 +17,23 @@ class RelativePositioningSampler(Sampler):
     tau_neg:
         number of windows in negative context, both before and after?
     """
-    def __init__(self, data, labels, n_examples, **kwargs):
+    def __init__(self, data, labels, n_recordings, n_epochs, **kwargs):
         self.data = data
         self.labels = labels
-        self.n_examples = n_examples
+        self.n_recordings = n_recordings
+        self.n_epochs = n_epochs
         self._tau_pos = kwargs.get('tau_pos', 2)
         self._tau_neg = kwargs.get('tau_neg', 50)
         self._batch_size = kwargs.get('batch_size', 32)
         
-        if len(data) != len(labels): raise ValueError('n_examples not equal to number of samples in data')
+        if len(data.keys()) != len(labels.keys()): raise ValueError('length of data and labels are not equal')
+        if len(data.keys()) != n_recordings: raise ValueError('n_examples not equal to number of recordings in data')
 
     def __len__(self):
-        return self.n_examples
+        return self.n_epochs
 
     def __iter__(self):
-        for recording in range(self.n_examples):
+        for recording in range(self.n_recordings):
             for anchor_epoch in range(len(self.data[recording])):
                 yield self._sample_pair(recording, anchor_epoch)
 

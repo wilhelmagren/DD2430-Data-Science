@@ -15,6 +15,15 @@ from tqdm import tqdm
 from sklearn.manifold import TSNE
 
 
+LEFT_OCCI = ['MEG1731','MEG1732','MEG1733']
+LEFT_TEMPOR = ['MEG0142','MEG0141','MEG0143']
+LEFT_FRONTAL = ['MEG0511','MEG0512','MEG0513']
+LEFT_PARA = ['MEG1821', 'MEG1822', 'MEG1823']
+RIGHT_OCCI = ['MEG2511','MEG2512','MEG2513']
+RIGHT_TEMPOR = ['MEG1431','MEG1432','MEG1433']
+RIGHT_FRONTAL = ['MEG0921','MEG0922','MEG0923']
+RIGHT_PARA = ['MEG2211','MEG2212','MEG2213']
+INCLUDE_CHANNELS = LEFT_OCCI + LEFT_TEMPOR + LEFT_FRONTAL + LEFT_PARA + RIGHT_OCCI + RIGHT_TEMPOR + RIGHT_FRONTAL + RIGHT_PARA
 RELATIVE_DIRPATH = '../data/data-ds-200HZ/'
 STATEID_MAP = {1: 'ses-con_task-rest_ec',
                2: 'ses-con_task-rest_eo',
@@ -31,15 +40,23 @@ def WPRINT(msg, instance):
 def EPRINT(msg, instance):
     print("[!]  {}\t{}".format(str(instance), msg))
 
+def accuracy(target, pred):
+    target, pred = torch.flatten(target), torch.flatten(pred)
+    pred = pred > 0.5
+    return (target == pred).sum().item() / target.size(0)
+
 def extract_embeddings(model, device, sampler):
     X = list()
     with torch.no_grad():
         for batch, (anchors, _, _) in tqdm(enumerate(sampler), total=len(sampler), desc='sampling embeddings'):
             anchors = anchors.to(device)
-            embedding = model(anchors[0, :, :][None])
-            X.append(embedding[None])
-    X = np.concatenate(torch.cat(X, 0).cpu().detach().numpy(), axis=0)
+            embedding = model(anchors)
+            X.append(embedding[0, :][None])
+    X = list(x.cpu().detach().numpy() for x in X)
+    X = np.concatenate(X, axis=0)
     Y = list(item for sublist in sampler.labels.values() for item in sublist)
+    print('embedding shape: {}'.format(X.shape))
+    print('label shape: {}'.format(len(Y)))
     return X, Y
 
 def viz_tSNE(embeddings, Y, flag='recording', n_components=2, fname='t-SNE_emb_post.png', **kwargs):

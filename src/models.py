@@ -1,10 +1,127 @@
-# Authors: Hubert Banville <hubert.jbanville@gmail.com>
-#
-# License: BSD (3-clause)
-
 import torch
-from torch import nn
 import numpy as np
+
+from torch import nn
+from utils import WPRINT, EPRINT
+
+
+class BasedNet(nn.Module):
+    def __init__(self, n_channels, sfreq, n_conv_chs=40, n_classes=100,
+                 input_size_s=5., temporal_conv_size_s=.25, dropout=.5, **kwargs):
+        super(BasedNet, self).__init__()
+        self._verbose = kwargs.get('verbose', True)
+        input_size = np.ceil(input_size_s * sfreq).astype(int)
+        temporal_conv_size = np.ceil(temporal_conv_size_s * sfreq).astype(int)
+
+        if n_channels < 2: raise ValueError('requires n_channels >= 2, n_channels={}'.format(n_channels))
+        
+        self._spatial_conv = nn.Sequential(
+                nn.Conv2d(1, n_channels, (n_channels, 1)),
+                nn.ReLU()
+                )
+
+        self._temporal_conv = nn.Sequential(
+                nn.Conv2d(1, n_conv_chs, (1, temporal_conv_size)),
+                nn.BatchNorm2d(n_conv_chs),
+                nn.ReLU(),
+                nn.MaxPool2d((1, 2)),
+                nn.Conv2d(n_conv_chs, n_conv_chs, (1, temporal_conv_size // 2)),
+                nn.BatchNorm2d(n_conv_chs),
+                nn.ReLU(),
+                nn.MaxPool2d((1, 2)),
+                nn.Conv2d(n_conv_chs, n_conv_chs, (3, temporal_conv_size // 2)),
+                nn.BatchNorm2d(n_conv_chs),
+                nn.ReLU(),
+                nn.MaxPool2d((1, 4)),
+                nn.Conv2d(n_conv_chs, n_conv_chs, (10, temporal_conv_size // 2)),
+                nn.BatchNorm2d(n_conv_chs),
+                nn.ReLU(),
+                nn.MaxPool2d((1, 2))
+                )
+
+        self._affine_layer = nn.Sequential(
+                nn.Dropout(dropout),
+                nn.Linear(6760, n_classes)
+                )
+           
+    def __str__(self):
+        return 'BasedNet'
+    
+    def forward(self, x):
+        if x.ndim == 3: x = x.unsqueeze(1)
+
+        x = self._spatial_conv(x)
+        x = x.transpose(1, 2)
+        
+        x = self._temporal_conv(x)
+        x = x.flatten(start_dim=1)
+
+        x = self._affine_layer(x)
+        return x
+
+
+class MEGNet(nn.Module):
+    def __init__(self, n_channels, sfreq, n_conv_chs=16, temporal_conv_size_s=.125,
+                 avg_pool_size_s=.05, pad_size_s=.05, input_size_s=5.,
+                 n_classes=100, dropout=.5, apply_batch_norm=True, **kwargs):
+        super(MEGNet, self).__init__()
+
+        temporal_conv_size = np.ceil(temporal_conv_size_s * sfreq).astype(int)
+        avg_pool_size = np.ceil(avg_pool_size_s * sfreq).astype(int)
+        input_size = np.ceil(input_size_s * sfreq).astype(int)
+        pad_size = np.ceil(pad_size_s * sfreq).astype(int)
+        self._verbose = kwargs.get('verbose', True)
+
+        if n_channels < 2: raise ValueError('requires n_channels >= 2, n_channels={}'.format(n_channels))
+
+        self._conv_layers1 = nn.Sequential(
+                nn.Conv2d(1, n_conv_chs, (1, temporal_conv_size)),
+                nn.BatchNorm2d(n_conv_chs),
+                nn.ReLU(),
+                nn.Conv2d(n_conv_chs, n_channels, (n_channels, 1)),
+                nn.BatchNorm2d(n_channels),
+                nn.ReLU(),
+                )
+
+        self._conv_layers2 = nn.Sequential(
+                nn.Conv2d(1, n_conv_chs, (1, temporal_conv_size)),
+                nn.BatchNorm2d(n_conv_chs),
+                nn.ReLU(),
+                nn.Conv2d(n_conv_chs, n_conv_chs, (n_channels, 1)),
+                nn.BatchNorm2d(n_conv_chs),
+                nn.ReLU(),
+                nn.AvgPool2d((1, avg_pool_size)),
+                )
+        
+        self._len = self._len_last_layer(n_channels, input_size)
+        self._affine_layer = nn.Sequential(
+                nn.Dropout(dropout),
+                nn.Linear(self._len, n_classes)
+                )
+
+    def __str__(self):
+        return 'MEGNet'
+
+    def _len_last_layer(self, n_channels, input_size):
+        with torch.no_grad():
+            out = self._conv_layers1(torch.Tensor(1, 1, n_channels, input_size))
+            out = out.transpose(1, 2)
+            out = self._conv_layers2(out)
+            print(out.shape)
+        return len(out.flatten())
+
+    def forward(self, x):
+        if x.ndim == 3: x = x.unsqueeze(1)
+
+        x = self._conv_layers1(x)
+        x = x.transpose(1, 2)
+
+        x = self._conv_layers2(x)
+        x = x.flatten(start_dim=1)
+
+        x = self._affine_layer(x)
+
+        return x
 
 
 class StagerNet(nn.Module):
@@ -51,8 +168,8 @@ class StagerNet(nn.Module):
            IEEE Transactions on Neural Systems and Rehabilitation Engineering,
            26(4), 758-769.
     """
-    def __init__(self, n_channels, sfreq, n_conv_chs=8, time_conv_size_s=0.5,
-                 max_pool_size_s=0.125, pad_size_s=0.25, input_size_s=30,
+    def __init__(self, n_channels, sfreq, n_conv_chs=8, time_conv_size_s=0.25,
+                 max_pool_size_s=0.05, pad_size_s=0.125, input_size_s=2.,
                  n_classes=5, dropout=0.25, apply_batch_norm=False,
                  return_feats=False):
         super(StagerNet, self).__init__()
@@ -171,6 +288,8 @@ class ShallowNet(nn.Module):
             nn.Linear(6840, n_classes)
         )
         
+    def __str__(self):
+        return 'ShallowNet'
     
     def forward(self, x):
         if x.ndim == 3:
@@ -194,4 +313,11 @@ class ContrastiveNet(nn.Module):
         x1, x2 = x
         z1, z2 = self.emb(x1), self.emb(x2)
         return self.clf(torch.abs(z1 - z2)).flatten()
+
+
+if __name__ == '__main__':
+    mn = ZubarevNet(24, sfreq=200)
+    with torch.no_grad():
+        print(mn.forward(torch.Tensor(1, 1, 24, 1000)))
+        print('Done!')
 
