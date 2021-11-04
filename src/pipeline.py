@@ -8,8 +8,7 @@ from torch import nn
 from dataset import DatasetMEG
 from utils import WPRINT, EPRINT, extract_embeddings, viz_tSNE
 from sklearn.manifold import TSNE
-from models.shallownet import ShallowNet
-from models.stagernet import StagerNet
+from models import StagerNet, ShallowNet, ContrastiveNet
 from samplers import RelativePositioningSampler
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -37,22 +36,7 @@ emb = StagerNet(
     dropout=0.5,
     apply_batch_norm=True,
 )
-
-class ContrastiveNet(nn.Module):
-    def __init__(self, emb, emb_size, dropout=0.5):
-        super().__init__()
-        self.emb = emb
-        self.clf = nn.Sequential(
-            nn.Dropout(dropout),
-            nn.Linear(emb_size, 1)
-        )
-
-    def forward(self, x):
-        x1, x2 = x
-        z1, z2 = self.emb(x1), self.emb(x2)
-        return self.clf(torch.abs(z1 - z2)).flatten()
-
-
+o
 def accuracy(target, pred):
     target, pred = torch.flatten(target), torch.flatten(pred)
     pred = pred > 0.5
