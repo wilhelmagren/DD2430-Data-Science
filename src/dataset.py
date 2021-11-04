@@ -141,8 +141,23 @@ class DatasetMEG(Dataset):
         WPRINT('loading raw .fif file with MNE...', self)
         raw = mne.io.read_raw_fif(fname, preload=True)
         raw = self._ICA_artifact_removal(raw)
-        exclude = list(c for c in list(map(lambda c: None if 'MEG' in c else c, raw.info['ch_names'])) if c)
-        raw.drop_channels(exclude) if drop_channels else None
+        left_occi = ['MEG1731','MEG1732','MEG1733']
+        left_tempor = ['MEG0142','MEG0141','MEG0143']
+        left_frontal = ['MEG0511','MEG0512','MEG0513']
+        right_frontal = ['MEG0921','MEG0922','MEG0923']
+        right_tempor = ['MEG1431','MEG1432','MEG1433']
+        right_occi = ['MEG2511','MEG2512','MEG2513']
+        left_para = ['MEG1821','MEG1822','MEG1823']
+        right_para = ['MEG2211','MEG2212','MEG2213']
+
+        exclude_list = []
+        channels = left_occi + left_tempor + left_frontal + right_frontal + right_tempor + right_occi + left_para + right_para
+        for chan in raw.info['ch_names']:
+            if chan not in channels:
+                exclude_list.append(chan)
+
+        #exclude = list(c for c in list(map(lambda c: None if 'MEG' in c else c, raw.info['ch_names'])) if c)
+        raw.drop_channels(exclude_list) if drop_channels else None
         raw.info['subject_info'] = {'id': int(subj_id), 'reco': int(reco_id)}
         return raw
 
