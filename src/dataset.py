@@ -19,7 +19,7 @@ import time
 from collections import defaultdict
 from torch.utils.data import Dataset
 from mne.preprocessing import ICA, create_eog_epochs, create_ecg_epochs
-from utils import WPRINT, EPRINT, RELATIVE_DIRPATH, STATEID_MAP, get_subject_id, get_recording_id, get_subject_gender, get_subject_age
+from utils import WPRINT, EPRINT, RELATIVE_DIRPATH, STATEID_MAP, get_subject_id, get_recording_id, get_subject_gender, get_subject_age, INCLUDE_CHANNELS
 
 
 
@@ -101,7 +101,7 @@ class DatasetMEG(Dataset):
         return self.X[idx], self.Y[idx]
 
     def __len__(self):
-        return self._n_epochs
+        return self._n_recordings
 
     @property
     def shape(self):
@@ -141,23 +141,8 @@ class DatasetMEG(Dataset):
         WPRINT('loading raw .fif file with MNE...', self)
         raw = mne.io.read_raw_fif(fname, preload=True)
         raw = self._ICA_artifact_removal(raw)
-        left_occi = ['MEG1731','MEG1732','MEG1733']
-        left_tempor = ['MEG0142','MEG0141','MEG0143']
-        left_frontal = ['MEG0511','MEG0512','MEG0513']
-        right_frontal = ['MEG0921','MEG0922','MEG0923']
-        right_tempor = ['MEG1431','MEG1432','MEG1433']
-        right_occi = ['MEG2511','MEG2512','MEG2513']
-        left_para = ['MEG1821','MEG1822','MEG1823']
-        right_para = ['MEG2211','MEG2212','MEG2213']
-
-        exclude_list = []
-        channels = left_occi + left_tempor + left_frontal + right_frontal + right_tempor + right_occi + left_para + right_para
-        for chan in raw.info['ch_names']:
-            if chan not in channels:
-                exclude_list.append(chan)
-
-        #exclude = list(c for c in list(map(lambda c: None if 'MEG' in c else c, raw.info['ch_names'])) if c)
-        raw.drop_channels(exclude_list) if drop_channels else None
+        exclude = list(c for c in list(map(lambda c: None if c in INCLUDE_CHANNELS else c, raw.info['ch_names'])) if c)
+        raw.drop_channels(exclude) if drop_channels else None
         raw.info['subject_info'] = {'id': int(subj_id), 'reco': int(reco_id)}
         return raw
 
@@ -178,12 +163,21 @@ class DatasetMEG(Dataset):
         for i in range(n_epochs):
             cropped_time_point_right = (i + 1) * n_epoch_samples
             cropped_time_point_left  = i * n_epoch_samples
-            epoch = raw_np[:self._n_channels, cropped_time_point_left:cropped_time_point_right]
+            epoch = raw_np[:, cropped_time_point_left:cropped_time_point_right]
+            epoch = self._standardize_epoch(epoch)
             epochs['data'].append(epoch)
             epochs['labels'].append(label)
         WPRINT('returning {} epochs'.format(len(epochs['data'])), self)
         return epochs
 
+    def _standardize_epoch(self, epoch):
+        n_channels = epoch.shape[0]
+        for channel in range(n_channels):
+            mu = epoch[channel, :].mean()
+            std = epoch[channel,:].std()
+            epoch[channel, :] = (epoch[channel, :] - mu) / std
+        return epoch
+    
     def _fetch_data(self, subj_ids, reco_ids, **kwargs):
         WPRINT('fetching MEG data filepaths', self)
         subj_ids = list(map(lambda x: '0'+str(x) if len(str(x)) != 2 else str(x), subj_ids))
@@ -205,7 +199,7 @@ class DatasetMEG(Dataset):
         fir_design = kwargs.get('fir_design', 'firwin')
         raw.filter(1., None, n_jobs=n_jobs, fir_design=fir_design)
         picks_meg = mne.pick_types(raw.info, meg=True, eeg=False, eog=False, stim=False, exclude='bads')
-        reject = dict(mag=5e-11, grad=4000e-13)
+        reject = dict(mag=5e-11, grad=4000e-12)
         self._ICA.fit(raw, picks=picks_meg, decim=self._decim, reject=reject)
         WPRINT(self._ICA, self)
 
