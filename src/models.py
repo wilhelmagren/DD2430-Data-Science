@@ -1,3 +1,13 @@
+"""
+Python file implementing three different conv nets for pretext task classification.
+StagerNet and ShallowNet are taken from Hubert Banville et al. 2020 paper
+and BasedNet is a home-made architecture based on ideas from the two other
+conv nets. Also contains code for Siamese architecture network for generating
+probabilities based on embeddings/extracted features from the conv nets.
+
+Author: Wilhelm Ågren, wagren@kth.se
+Last edited: 05-11-2021
+"""
 import torch
 import numpy as np
 
@@ -6,7 +16,7 @@ from utils import WPRINT, EPRINT
 
 
 class BasedNet(nn.Module):
-    """ CNN architecture based on 'Adaptive neural netowkr classifier for decoding MEG signals'
+    """ CNN architecture based on 'Adaptive neural network classifier for decoding MEG signals'
     by Ivan Zubarev et al. 15th of August 2019. Follows similar principles as the StagerNet
     with spatial conv through all channels followed by a number of temporal conv + max-pooling
     layers. This model is  3 times as deep, and shows promising results during training and
