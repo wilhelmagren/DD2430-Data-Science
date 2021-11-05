@@ -6,6 +6,12 @@ from utils import WPRINT, EPRINT
 
 
 class BasedNet(nn.Module):
+    """ CNN architecture based on 'Adaptive neural netowkr classifier for decoding MEG signals'
+    by Ivan Zubarev et al. 15th of August 2019. Follows similar principles as the StagerNet
+    with spatial conv through all channels followed by a number of temporal conv + max-pooling
+    layers. This model is  3 times as deep, and shows promising results during training and
+    also when inspecting latent space embeddings with t-SNE.
+    """
     def __init__(self, n_channels, sfreq, n_conv_chs=40, n_classes=100,
                  input_size_s=5., temporal_conv_size_s=.25, dropout=.5, **kwargs):
         super(BasedNet, self).__init__()
@@ -41,7 +47,7 @@ class BasedNet(nn.Module):
 
         self._affine_layer = nn.Sequential(
                 nn.Dropout(dropout),
-                nn.Linear(6760, n_classes)
+                nn.Linear(169*n_conv_chs, n_classes)
                 )
            
     def __str__(self):
@@ -57,70 +63,6 @@ class BasedNet(nn.Module):
         x = x.flatten(start_dim=1)
 
         x = self._affine_layer(x)
-        return x
-
-
-class MEGNet(nn.Module):
-    def __init__(self, n_channels, sfreq, n_conv_chs=16, temporal_conv_size_s=.125,
-                 avg_pool_size_s=.05, pad_size_s=.05, input_size_s=5.,
-                 n_classes=100, dropout=.5, apply_batch_norm=True, **kwargs):
-        super(MEGNet, self).__init__()
-
-        temporal_conv_size = np.ceil(temporal_conv_size_s * sfreq).astype(int)
-        avg_pool_size = np.ceil(avg_pool_size_s * sfreq).astype(int)
-        input_size = np.ceil(input_size_s * sfreq).astype(int)
-        pad_size = np.ceil(pad_size_s * sfreq).astype(int)
-        self._verbose = kwargs.get('verbose', True)
-
-        if n_channels < 2: raise ValueError('requires n_channels >= 2, n_channels={}'.format(n_channels))
-
-        self._conv_layers1 = nn.Sequential(
-                nn.Conv2d(1, n_conv_chs, (1, temporal_conv_size)),
-                nn.BatchNorm2d(n_conv_chs),
-                nn.ReLU(),
-                nn.Conv2d(n_conv_chs, n_channels, (n_channels, 1)),
-                nn.BatchNorm2d(n_channels),
-                nn.ReLU(),
-                )
-
-        self._conv_layers2 = nn.Sequential(
-                nn.Conv2d(1, n_conv_chs, (1, temporal_conv_size)),
-                nn.BatchNorm2d(n_conv_chs),
-                nn.ReLU(),
-                nn.Conv2d(n_conv_chs, n_conv_chs, (n_channels, 1)),
-                nn.BatchNorm2d(n_conv_chs),
-                nn.ReLU(),
-                nn.AvgPool2d((1, avg_pool_size)),
-                )
-        
-        self._len = self._len_last_layer(n_channels, input_size)
-        self._affine_layer = nn.Sequential(
-                nn.Dropout(dropout),
-                nn.Linear(self._len, n_classes)
-                )
-
-    def __str__(self):
-        return 'MEGNet'
-
-    def _len_last_layer(self, n_channels, input_size):
-        with torch.no_grad():
-            out = self._conv_layers1(torch.Tensor(1, 1, n_channels, input_size))
-            out = out.transpose(1, 2)
-            out = self._conv_layers2(out)
-            print(out.shape)
-        return len(out.flatten())
-
-    def forward(self, x):
-        if x.ndim == 3: x = x.unsqueeze(1)
-
-        x = self._conv_layers1(x)
-        x = x.transpose(1, 2)
-
-        x = self._conv_layers2(x)
-        x = x.flatten(start_dim=1)
-
-        x = self._affine_layer(x)
-
         return x
 
 
@@ -301,6 +243,9 @@ class ShallowNet(nn.Module):
 
 
 class ContrastiveNet(nn.Module):
+    """ Siamese network ContrastiveNet
+    for training embedder(s) on pretext tasks.
+    """
     def __init__(self, emb, emb_size, dropout=0.5):
         super().__init__()
         self.emb = emb
@@ -316,7 +261,7 @@ class ContrastiveNet(nn.Module):
 
 
 if __name__ == '__main__':
-    mn = ZubarevNet(24, sfreq=200)
+    mn = BasedNet(24, sfreq=200)
     with torch.no_grad():
         print(mn.forward(torch.Tensor(1, 1, 24, 1000)))
         print('Done!')
