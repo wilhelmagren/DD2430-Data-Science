@@ -246,13 +246,17 @@ class ContrastiveNet(nn.Module):
     """ Siamese network ContrastiveNet
     for training embedder(s) on pretext tasks.
     """
-    def __init__(self, emb, emb_size, dropout=0.5):
+    def __init__(self, emb, emb_size, dropout=0.5, **kwargs):
         super().__init__()
+        self._verbose = kwargs.get('verbose', True)
         self.emb = emb
         self.clf = nn.Sequential(
             nn.Dropout(dropout),
             nn.Linear(emb_size, 1)
         )
+
+    def __str__(self):
+        return 'ContrNet'
 
     def forward(self, x):
         x1, x2 = x
