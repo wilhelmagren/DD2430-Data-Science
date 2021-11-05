@@ -77,11 +77,9 @@ Last edited: 05-11-2021
 import torch
 import warnings
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm
-from torch import nn
 from dataset import DatasetMEG
 from collections import defaultdict
 from utils import WPRINT, EPRINT, extract_embeddings, viz_tSNE, accuracy, pre_eval, fit, plot_training_history
