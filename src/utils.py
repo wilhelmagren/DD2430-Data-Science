@@ -55,7 +55,8 @@ def pre_eval(model, device, criterion, sampler, **kwargs):
             loss = criterion(outputs, labels)
             pval_loss += loss.item()
             pval_acc += accuracy(labels, outputs)
-        return (pval_loss, pval_acc)
+        print('[*]  pre-eval:  loss={:.4f}  acc={:.2f}%'.format(pval_loss/len(sampler), 100*pval_acc/len(sampler)))
+        return (pval_loss/len(sampler), 100*pval_acc/len(sampler))
 
 def fit(model, device, criterion, optimizer, sampler, **kwargs):
     n_epochs = kwargs.get('n_epochs', 10)
@@ -79,6 +80,7 @@ def fit(model, device, criterion, optimizer, sampler, **kwargs):
     return (loss_history, acc_history)
 
 def plot_training_history(history, fname='pretext-task_loss-acc_training.png', style='seaborn-talk'):
+    print(history)
     plt.style.use(style)
     styles = ['-']
     markers = ['.']
@@ -111,8 +113,6 @@ def extract_embeddings(model, device, sampler):
     X = list(x.cpu().detach().numpy() for x in X)
     X = np.concatenate(X, axis=0)
     Y = list(item for sublist in sampler.labels.values() for item in sublist)
-    print('embedding shape: {}'.format(X.shape))
-    print('label shape: {}'.format(len(Y)))
     return X, Y
 
 def viz_tSNE(embeddings, Y, flag='recording', n_components=2, fname='t-SNE_emb_post.png', **kwargs):
