@@ -45,6 +45,62 @@ def accuracy(target, pred):
     pred = pred > 0.5
     return (target == pred).sum().item() / target.size(0)
 
+def pre_eval(model, device, criterion, sampler, **kwargs):
+    with torch.no_grad():
+        pval_loss, pval_acc = 0., 0.
+        for batch, (anchors, samples, labels) in tqdm(enumerate(sampler), total=len(sampler), desc='[*] pre-evaluating model'):
+            anchors, samples, labels = anchors.to(device), samples.to(device), torch.unsqueeze(labels.to(device), dim=1)
+            outputs = model((anchors, samples))
+            outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
+            loss = criterion(outputs, labels)
+            pval_loss += loss.item()
+            pval_acc += accuracy(labels, outputs)
+        return (pval_loss, pval_acc)
+
+def fit(model, device, criterion, optimizer, sampler, **kwargs):
+    n_epochs = kwargs.get('n_epochs', 10)
+    loss_history, acc_history = list(), list()
+    model.train()
+    for epoch in range(n_epochs):
+        tloss, tacc = 0., 0.
+        for batch, (anchors, samples, labels) in tqdm(enumerate(sampler), total=len(sampler), desc='[*]  epoch={}/{}'.format(epoch+1, n_epochs)):
+            anchors, samples, labels = anchors.to(device), samples.to(device), torch.unsqueeze(labels.to(device), dim=1)
+            optimizer.zero_grad()
+            outputs = model((anchors, samples))
+            outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            tloss += loss.item()
+            tacc += accuracy(labels, outputs)
+        loss_history.append(tloss/len(sampler))
+        acc_history.append(100*tacc/len(sampler))
+        print("[*]  epoch={:02d}  tloss={:.4f}  tacc={:.2f}%".format(epoch+1, tloss/len(sampler), 100*tacc/len(sampler)))
+    return (loss_history, acc_history)
+
+def plot_training_history(history, fname='pretext-task_loss-acc_training.png', style='seaborn-talk'):
+    plt.style.use(style)
+    styles = ['-']
+    markers = ['.']
+    Y1, Y2 = ['loss'], ['acc']
+    fig, ax1 = plt.subplots(figsize=(8,3))
+    ax2 = ax1.twinx()
+    for y1, y2, style, marker in zip(Y1, Y2, styles, markers):
+        ax1.plot(history[y1], ls=style, marker=marker, ms=7, c='tab:blue', label=y1)
+        ax2.plot(history[y2], ls=style, marker=marker, ms=7, c='tab:orange', label=y2)
+    ax1.tick_params(axis='y', labelcolor='tab:blue')
+    ax1.set_ylabel('Loss', color='tab:blue')
+    ax2.tick_params(axis='y', labelcolor='tab:orange')
+    ax2.set_ylabel('Accuracy [%]', color='tab:orange')
+    ax1.set_xlabel('Epoch')
+
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax2.legend(lines1+lines2, labels1+labels2)
+    plt.tight_layout()
+    plt.savefig(fname)
+    
+
 def extract_embeddings(model, device, sampler):
     X = list()
     with torch.no_grad():
