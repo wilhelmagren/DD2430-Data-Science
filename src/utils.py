@@ -2,9 +2,12 @@
 File implements ulitity functions used between various scripts.
 Contains default variables in all caps, add more if necessary.
 
+this file implements: evaluation and training of model, 
+visualization of loss+acc history evolution, t-SNE of 
+latent space embeddings, calculating accuracy.
 
 Author: Wilhelm Ågren, wagren@kth.se
-Last edited: 03-11-2021
+Last edited: 05-11-2021
 """
 import os
 import torch
@@ -82,7 +85,7 @@ def fit(model, device, criterion, optimizer, sampler, **kwargs):
 def plot_training_history(history, fname='pretext-task_loss-acc_training.png', style='seaborn-talk'):
     print(history)
     plt.style.use(style)
-    styles = ['-']
+    styles = [':']
     markers = ['.']
     Y1, Y2 = ['loss'], ['acc']
     fig, ax1 = plt.subplots(figsize=(8,3))
