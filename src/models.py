@@ -252,12 +252,9 @@ class ShallowNet(nn.Module):
         return x
 
 
-class ContrastiveNet(nn.Module):
-    """ Siamese network ContrastiveNet
-    for training embedder(s) on pretext tasks.
-    """
-    def __init__(self, emb, emb_size, dropout=0.5, **kwargs):
-        super().__init__()
+class ContrastiveRPNet(nn.Module):
+    def __init__(self, emb, emb_size, dropout=.5, **kwargs):
+        super(ContrastiveRPNet, self).__init__()
         self._verbose = kwargs.get('verbose', True)
         self.emb = emb
         self.clf = nn.Sequential(
@@ -273,10 +270,24 @@ class ContrastiveNet(nn.Module):
         z1, z2 = self.emb(x1), self.emb(x2)
         return self.clf(torch.abs(z1 - z2)).flatten()
 
+class ContrastiveTSNet(nn.Module):
+    """
+    """
+    def __init__(self, emb, emb_size, dropout=.5, **kwargs):
+        super(ContrastiveTSNet, self).__init__()
+        self._verbose = kwargs.get('verbose', True)
+        self.emb = emb
+        self.clf = nn.Sequential(
+                nn.Dropout(dropout),
+                nn.Linear(2 * emb_size, 1)
+                )
 
-if __name__ == '__main__':
-    mn = BasedNet(24, sfreq=200)
-    with torch.no_grad():
-        print(mn.forward(torch.Tensor(1, 1, 24, 1000)))
-        print('Done!')
+    def __str__(self):
+        return 'ContrastiveTSNet'
+
+    def forward(self, x):
+        x1, x2, x3 = x
+        z1, z2, z3 = self.emb(x1), self.emb(x2), self.emb(x3)
+        return self.clf(torch.cat((torch.abs(z1 - z2), torch.abs(z2 - z3)), dim=1)).flatten()
+
 
