@@ -51,9 +51,9 @@ def accuracy(target, pred):
 def pre_eval(model, device, criterion, sampler, **kwargs):
     with torch.no_grad():
         pval_loss, pval_acc = 0., 0.
-        for batch, (anchors, samples, labels) in tqdm(enumerate(sampler), total=len(sampler), desc='[*] pre-evaluating model'):
-            anchors, samples, labels = anchors.to(device), samples.to(device), torch.unsqueeze(labels.to(device), dim=1)
-            outputs = model((anchors, samples))
+        for batch, (anchors, positives, samples, labels) in tqdm(enumerate(sampler), total=len(sampler), desc='[*] pre-evaluating model'):
+            anchors, positives, samples, labels = anchors.to(device), positives.to(device), samples.to(device), torch.unsqueeze(labels.to(device), dim=1)
+            outputs = model((anchors, positives, samples))
             outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
             loss = criterion(outputs, labels)
             pval_loss += loss.item()
@@ -67,10 +67,10 @@ def fit(model, device, criterion, optimizer, sampler, **kwargs):
     model.train()
     for epoch in range(n_epochs):
         tloss, tacc = 0., 0.
-        for batch, (anchors, samples, labels) in tqdm(enumerate(sampler), total=len(sampler), desc='[*]  epoch={}/{}'.format(epoch+1, n_epochs)):
-            anchors, samples, labels = anchors.to(device), samples.to(device), torch.unsqueeze(labels.to(device), dim=1)
+        for batch, (anchors, positives, samples, labels) in tqdm(enumerate(sampler), total=len(sampler), desc='[*]  epoch={}/{}'.format(epoch+1, n_epochs)):
+            anchors, positives, samples, labels = anchors.to(device), positives.to(device), samples.to(device), torch.unsqueeze(labels.to(device), dim=1)
             optimizer.zero_grad()
-            outputs = model((anchors, samples))
+            outputs = model((anchors, positives, samples))
             outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
             loss = criterion(outputs, labels)
             loss.backward()
