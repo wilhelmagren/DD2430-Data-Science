@@ -15,21 +15,67 @@ from utils import WPRINT, EPRINT
 
 
 class RelativePositioningSampler(Sampler):
-    """
-    data:
-        size= number_of_windows x channels x samples_per_window
-    n_examples:
-        number_of_windows
-    tau_pos:
-        number of windows to look at for positive context
-    tau_neg:
-        number of windows in negative context, both before and after?
+    """ Pretext task implementation for algorithm Relative Positioning (RP)
+
+    Sample pairs of time epochs (x_t, x_t`) where each window x_t, x_t` is in
+    R^CxT and T is the duration of each epoch, and where t indicates the time sample
+    at which the window starts in S. A contrastive module if used to aggregate the
+    feature representations of each epoch: R^D x R^D -> R^D combines representations
+    from pairs of windows by computing the elementwise absolute difference.
+
+    Parameters
+    ----------
+    data: dictionary(int: np.array)
+        the time epochs containing all of the raw MEG data. Access each epoch
+        by its index relative to when it is temporally in the recording.
+
+    labels: dictionary(int: tuple)
+        the corresponding labels for each recording and its epochs. All epochs
+        of one recording contain the same labels. So maybe this should not be 
+        as big as it is, but it is for now.
+
+    n_recordings: int
+        integer specifying the number of recordings present in the data
+        dictionary. The number of recordings should be equal to the amount
+        of keys of the data dictionary.
+
+    n_epochs: int
+        integer specifying how many epochs total there are in the provided
+        data dictioary. Not all recordings contain the same amount of epochs,
+        so this has to be calculated beforehand by iterating over the 
+        specific recordings and its epochs.
+
+    tau_pos: int
+        integer specifying how many epochs should allowed in the positive context
+        of the pretext task algorithm. 
+
+    tau_neg: int
+        integer specifying how many epochs should be allowed in the negative
+        context of the pretext task algorithm; both before and after the
+        positive context. So a tau_neg=10 would mean there are 20 epochs
+        in the negative context.
+
+    
+    Below is an illustrative example of how the positive and negative contexts
+    may look in a RP sampling example:
+    given is: tau_pos = 5, tau_neg=4
+
+        --------------------------------------------
+         0  1  2  3   4  5  6  7  8   9  10  11  12
+        [0, 0, 0, 0, (0, 0, 0, 0, 0), 0,  0,  0,  0]
+         |        |   |           |   |           |
+        lnl      rnl  lp          rp lnr         rnr
+                      |
+                    anchor
+
+    This looks similar for the Temporal Shuffling pretext task, but there you sample
+    one more epoch in the positive context to base the shuffling label on.
     """
     def __init__(self, data, labels, n_recordings, n_epochs, **kwargs):
         self.data = data
         self.labels = labels
-        self.n_recordings = n_recordings
-        self.n_epochs = n_epochs
+        self._n_recordings = n_recordings
+        self._n_epochs = n_epochs
         self._tau_pos = kwargs.get('tau_pos', 2)
         self._tau_neg = kwargs.get('tau_neg', 50)
         self._batch_size = kwargs.get('batch_size', 32)
@@ -41,26 +87,15 @@ class RelativePositioningSampler(Sampler):
         return 'RPSampler'
 
     def __len__(self):
-        return self.n_epochs
+        return self._n_epochs
 
     def __iter__(self):
-        for recording in range(self.n_recordings):
+        for recording in range(self._n_recordings):
             for anchor_epoch in range(len(self.data[recording])):
                 yield self._sample_pair(recording, anchor_epoch)
 
     def _sample_pair(self, recording, anchor_epoch, **kwargs):
-        """
-        RELATIVE POSITIONING PRETEXT TASK
-        tau_pos = 5
-        tau_neg = 4
-        --------------------------------------------
-         0  1  2  3   4  5  6  7  8   9  10  11  12
-        [0, 0, 0, 0, (0, 0, 0, 0, 0), 0,  0,  0,  0]
-         |        |   |           |   |           |
-        lnl      rnl  lp          rp lnr         rnr
-                      |
-                    anchor
-        """ 
+
         batch_anchor_ctx = list()
         batch_sample_ctx = list()
         batch_labels = list()
