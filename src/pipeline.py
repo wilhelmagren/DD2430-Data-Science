@@ -83,8 +83,8 @@ from tqdm import tqdm
 from dataset import DatasetMEG
 from collections import defaultdict
 from utils import WPRINT, EPRINT, extract_embeddings, viz_tSNE, accuracy, pre_eval, fit, plot_training_history
-from models import StagerNet, ShallowNet, ContrastiveNet, BasedNet
-from samplers import RelativePositioningSampler
+from models import StagerNet, ShallowNet, ContrastiveRPNet, ContrastiveTSNet, BasedNet
+from samplers import RelativePositioningSampler, TemporalShufflingSampler
 
 warnings.filterwarnings('ignore', category=UserWarning)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -96,8 +96,8 @@ history = defaultdict(list)
 
 
 # BasedNet t-SNE results in images/ was with hyperparameters: tau_pos=5, tau_neg=20, batch_size=64, t_epoch=5.
-dataset = DatasetMEG(subj_ids=list(range(2, 12)), reco_ids=[2, 4], t_epoch=5., n_channels=n_channels, verbose=True)
-sampler = RelativePositioningSampler(dataset.X, dataset.Y, dataset._n_recordings, dataset._n_epochs, tau_pos=5, tau_neg=20, batch_size=64)
+dataset = DatasetMEG(subj_ids=list(range(2, 3)), reco_ids=[2, 4], t_epoch=5., n_channels=n_channels, verbose=True)
+sampler = TemporalShufflingSampler(dataset.X, dataset.Y, dataset._n_recordings, dataset._n_epochs, tau_pos=6, tau_neg=20, batch_size=4)
 
 if device == 'cuda':
     torch.backends.cudnn.benchmark = True
@@ -117,7 +117,7 @@ emb = BasedNet(n_channels, sfreq, n_classes=emb_size)
 
 lr = 1e-4
 n_epochs = 10 
-model = ContrastiveNet(emb, emb_size).to(device)
+model = ContrastiveTSNet(emb, emb_size).to(device)
 WPRINT('moving model to device={}'.format(device), model)
 criterion = torch.nn.BCELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=lr)
