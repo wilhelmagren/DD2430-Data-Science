@@ -254,7 +254,6 @@ class Pipeline:
         for idx, (x, y) in enumerate(components):
             color = tSNE_COLORS[flag][Y[idx][1 if flag == 'gender' else 0]]
             label = tSNE_LABELS[flag][Y[idx][1 if flag == 'gender' else 0]]
-            print(label)
             ax.scatter(x, y, alpha=.6, color=color, label=label)
         handles, labels = ax.get_legend_handles_labels()
         uniques = list((h, l) for i, (h, l) in enumerate(zip(handles, labels)) if l not in labels[:i])
