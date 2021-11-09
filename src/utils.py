@@ -14,8 +14,9 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
-from tqdm import tqdm
 from sklearn.manifold import TSNE
+from scipy.stats import pearsonr, kstwobign
+
 
 
 DEFAULT_NEPOCHS = 10
@@ -53,40 +54,6 @@ def accuracy(target, pred):
     pred = pred > 0.5
     return (target == pred).sum().item() / target.size(0)
 
-def pre_eval(model, device, criterion, sampler, **kwargs):
-    with torch.no_grad():
-        pval_loss, pval_acc = 0., 0.
-        for batch, (anchors, positives, samples, labels) in tqdm(enumerate(sampler), total=len(sampler), desc='[*] pre-evaluating model'):
-            anchors, positives, samples, labels = anchors.to(device), positives.to(device), samples.to(device), torch.unsqueeze(labels.to(device), dim=1)
-            outputs = model((anchors, positives, samples))
-            outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
-            loss = criterion(outputs, labels)
-            pval_loss += loss.item()
-            pval_acc += accuracy(labels, outputs)
-        print('[*]  pre-eval:  loss={:.4f}  acc={:.2f}%'.format(pval_loss/len(sampler), 100*pval_acc/len(sampler)))
-        return (pval_loss/len(sampler), 100*pval_acc/len(sampler))
-
-def fit(model, device, criterion, optimizer, sampler, **kwargs):
-    n_epochs = kwargs.get('n_epochs', 10)
-    loss_history, acc_history = list(), list()
-    model.train()
-    for epoch in range(n_epochs):
-        tloss, tacc = 0., 0.
-        for batch, (anchors, positives, samples, labels) in tqdm(enumerate(sampler), total=len(sampler), desc='[*]  epoch={}/{}'.format(epoch+1, n_epochs)):
-            anchors, positives, samples, labels = anchors.to(device), positives.to(device), samples.to(device), torch.unsqueeze(labels.to(device), dim=1)
-            optimizer.zero_grad()
-            outputs = model((anchors, positives, samples))
-            outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
-            tloss += loss.item()
-            tacc += accuracy(labels, outputs)
-        loss_history.append(tloss/len(sampler))
-        acc_history.append(100*tacc/len(sampler))
-        print("[*]  epoch={:02d}  tloss={:.4f}  tacc={:.2f}%".format(epoch+1, tloss/len(sampler), 100*tacc/len(sampler)))
-    return (loss_history, acc_history)
-
 def plot_training_history(history, fname='pretext-task_loss-acc_training.png', style='seaborn-talk'):
     print(history)
     plt.style.use(style)
@@ -108,30 +75,6 @@ def plot_training_history(history, fname='pretext-task_loss-acc_training.png', s
     lines2, labels2 = ax2.get_legend_handles_labels()
     ax2.legend(lines1+lines2, labels1+labels2)
     plt.tight_layout()
-    plt.savefig(fname)
-    
-
-def extract_embeddings(model, device, sampler):
-    X = list()
-    with torch.no_grad():
-        for batch, (anchors, _, _, _) in tqdm(enumerate(sampler), total=len(sampler), desc='sampling embeddings'):
-            anchors = anchors.to(device)
-            embedding = model(anchors)
-            X.append(embedding[0, :][None])
-    X = list(x.cpu().detach().numpy() for x in X)
-    X = np.concatenate(X, axis=0)
-    Y = list(item for sublist in sampler.labels.values() for item in sublist)
-    return X, Y
-
-def viz_tSNE(embeddings, Y, flag='recording', n_components=2, fname='t-SNE_emb_post.png', **kwargs):
-    tsne = TSNE(n_components=n_components)
-    components = tsne.fit_transform(embeddings)
-    fig, ax = plt.subplots()
-    for idx, point in enumerate(components):
-        ax.scatter(point[0], point[1], alpha=.9, color=tSNE_COLORS[flag][Y[idx][1 if flag == 'gender' else 0]], label=tSNE_LABELS[flag][Y[idx][1 if flag == 'gender' else 0]])
-    handles, labels = ax.get_legend_handles_labels()
-    unique = list((h,l) for i, (h,l) in enumerate(zip(handles, labels)) if l not in labels[:i])
-    ax.legend(*zip(*unique))
     plt.savefig(fname)
 
 def get_subject_id(filepath):
@@ -163,4 +106,62 @@ def get_subject_age(f):
             if id in line:
                 return int(line.split('\t')[1])
     raise ValueError
+
+def ks2d2s(x1, y1, x2, y2, nboot=None, extra=False):
+    assert (len(x1) == len(y1)) and (len(x2) == len(y2))
+    n1, n2 = len(x1), len(x2)
+    D = avgmaxdist(x1, y1, x2, y2)
+
+    if nboot is None:
+        sqen = np.sqrt(n1 * n2 / (n1 + n2))
+        r1 = pearsonr(x1, y1)[0]
+        r2 = pearsonr(x2, y2)[0]
+        r = np.sqrt(1 - 0.5 * (r1**2 + r2**2))
+        d = D * sqen / (1 + r * (0.25 - 0.75 / sqen))
+        p = kstwobign.sf(d)
+    else:
+        n = n1 + n2
+        x = np.concatenate([x1, x2])
+        y = np.concatenate([y1, y2])
+        d = np.empty(nboot, 'f')
+        for i in range(nboot):
+            idx = random.choice(n, n, replace=True)
+            ix1, ix2 = idx[:n1], idx[n1:]
+            #ix1 = random.choice(n, n1, replace=True)
+            #ix2 = random.choice(n, n2, replace=True)
+            d[i] = avgmaxdist(x[ix1], y[ix1], x[ix2], y[ix2])
+        p = np.sum(d > D).astype('f') / nboot
+    if extra:
+        return p, D
+    else:
+        return p
+
+def avgmaxdist(x1, y1, x2, y2):
+    D1 = maxdist(x1, y1, x2, y2)
+    D2 = maxdist(x2, y2, x1, y1)
+    return (D1 + D2) / 2
+
+def maxdist(x1, y1, x2, y2):
+    n1 = len(x1)
+    D1 = np.empty((n1, 4))
+    for i in range(n1):
+        a1, b1, c1, d1 = quadct(x1[i], y1[i], x1, y1)
+        a2, b2, c2, d2 = quadct(x1[i], y1[i], x2, y2)
+        D1[i] = [a1 - a2, b1 - b2, c1 - c2, d1 - d2]
+
+    # re-assign the point to maximize difference,
+    # the discrepancy is significant for N < ~50
+    D1[:, 0] -= 1 / n1
+
+    dmin, dmax = -D1.min(), D1.max() + 1 / n1
+    return max(dmin, dmax)
+
+def quadct(x, y, xx, yy):
+    n = len(xx)
+    ix1, ix2 = xx <= x, yy <= y
+    a = np.sum(ix1 & ix2) / n
+    b = np.sum(ix1 & ~ix2) / n
+    c = np.sum(~ix1 & ix2) / n
+    d = 1 - a - b - c
+    return a, b, c, d
 
