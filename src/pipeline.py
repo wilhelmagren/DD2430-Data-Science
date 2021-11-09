@@ -80,11 +80,11 @@ import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 
+from utils import *
 from tqdm import tqdm
 from dataset import DatasetMEG
 from collections import defaultdict
-from utils import *
-from models import StagerNet, ShallowNet, ContrastiveRPNet, ContrastiveTSNet, BasedNet
+from models import ContrastiveRPNet, ContrastiveTSNet, BasedNet
 from samplers import RelativePositioningSampler, TemporalShufflingSampler
 
 warnings.filterwarnings('ignore', category=UserWarning)
@@ -279,9 +279,36 @@ class Pipeline:
 
     def _TS_eval(self, *args, **kwargs):
         raise NotImplementedError('yo this is not done yet hehe')
+    
+    def _extract_RP_embeddings(self, *args, **kwargs):
+        X = list()
+        with torch.no_grad():
+            for batch, (anchors, _, _) in tqdm(enumerate(self._sampler), total=len(self._sampler), desc='extracting embeddings'):
+                anchors = anchors.to(self._device)
+                embeddings = self._embedder(anchors)
+                X.append(embeddings[0, :][None])
+        X = np.concatenate(list(x.cpu().detach().numpy() for x in X), axis=0)
+        return X
+
+    def _extract_TS_embeddings(self, *args, **kwargs):
+        X = list()
+        with torch.no_grad():
+            for batch, (anchors, _, _, _) in tqdm(enumerate(self._sampler), total=len(self._sampler), desc='extracting embeddings'):
+                anchors = anchors.to(self._device)
+                embeddings = self._embedder(anchors)
+                X.append(embeddings[0, :][None])
+        X = np.concatenate(list(x.cpu().detach().numpy() for x in X), axis=0)
+        return X 
+    
+    def _extract_embeddings(self, *args, **kwargs):
+        self._model.eval()
+        X = self._extract_RP_embeddings() if self._pretext_task == 'RP' else self._extract_TS_embeddings()
+        Y = list(z for subz in self._sampler.labels.values() for z in subz)
+        return X, Y
 
     def preval(self, *args, **kwargs):
         WPRINT('pre-evaluating model before training', self)
+        self._model.eval()
         if self._pretext_task == 'RP':
             self._RP_preval()
         else:
@@ -290,6 +317,7 @@ class Pipeline:
 
     def fit(self, *args, **kwargs):
         WPRINT('training model on device={}'.format(self._device), self)
+        self._model.train()
         if self._pretext_task == 'RP':
             self._RP_fit()
         else:
@@ -298,18 +326,40 @@ class Pipeline:
     
     def eval(self, *args, **kwargs):
         WPRINT('evaluating model', self)
+        self._model.eval()
         if self._pretext_tak == 'RP':
             self._RP_eval()
         else:
             self._TS_eval()
         WPRINT('done evaluating!', self)
-        
+
+    def t_SNE(self, *args, **kwargs):
+        WPRINT('visualizing embeddings using t-SNE', self)
+        (embeddings, Y) = self._extract_embeddings()
+        n_components = kwargs.get('n_components', 2)
+        fpath = kwargs.get('fpath', 't-SNE_emb_post.png')
+        flag = kwargs.get('flag', 'gender')
+        tsne = TSNE(n_components=n_components)
+        components = tsne.fit_transform(embeddings)
+        fig, ax = plt.subplots()
+        for idx, (x, y) in enumerate(components):
+            color = tSNE_COLORS[flag][Y[idx][1 if flag == 'gender' else 0]]
+            label = tSNE_LABELS[flag][Y[idx][1 if flag == 'gender' else 0]]
+            print(label)
+            ax.scatter(x, y, alpha=.6, color=color, label=label)
+        handles, labels = ax.get_legend_handles_labels()
+        uniques = list((h, l) for i, (h, l) in enumerate(zip(handles, labels)) if l not in labels[:i])
+        ax.legend(*zip(*uniques))
+        fig.suptitle('t-SNE visualization of latent space')
+        plt.savefig(fpath)
 
 
 if __name__ == "__main__":
     args = p_args()
     pipe = Pipeline(args)
-    pipe.preval()
-    pipe.fit()
+    # pipe.preval()
+    pipe.t_SNE(fpath='t-SNE_emb_pre.png')
+    # pipe.fit()
+    # pipe.t_SNE(fpath='t-SNE_emb_post.png')
     print('Done!')
 
