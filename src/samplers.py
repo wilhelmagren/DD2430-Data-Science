@@ -191,6 +191,7 @@ class TemporalShufflingSampler(Sampler):
             batch_anchor_ctx.append(self.data[recording][positive_anchor][None])
             batch_positive_ctx.append(self.data[recording][positive_sample][None])
             batch_sample_ctx.append(self.data[recording][temporal_sample][None])
+            batch_labels.append(label)
 
         X_ANCHOR = torch.Tensor(np.concatenate(batch_anchor_ctx, axis=0))
         X_POSITIVE = torch.Tensor(np.concatenate(batch_positive_ctx, axis=0))
