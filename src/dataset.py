@@ -164,11 +164,23 @@ class DatasetMEG(Dataset):
             cropped_time_point_right = (i + 1) * n_epoch_samples
             cropped_time_point_left  = i * n_epoch_samples
             epoch = raw_np[:, cropped_time_point_left:cropped_time_point_right]
-            epoch = self._standardize_epoch(epoch)
+            epoch = self._transform_epoch(epoch)
             epochs['data'].append(epoch)
             epochs['labels'].append(label)
         WPRINT('returning {} epochs'.format(len(epochs['data'])), self)
         return epochs
+    
+    def _transform_epoch(self, epoch):
+        """
+        apply standardized residual (normalizaiton) and scale values
+        """
+        epoch = epoch * 10e9
+        n_channels = epoch.shape[0]
+        for channel in range(n_channels):
+            mu = epoch[channel, :].mean()
+            std = epoch[channel,:].std()
+            epoch[channel, :] = (epoch[channel, :] - mu) / std
+        return epoch
 
     def _standardize_epoch(self, epoch):
         n_channels = epoch.shape[0]
