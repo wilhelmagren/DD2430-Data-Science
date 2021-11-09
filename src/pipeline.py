@@ -75,6 +75,7 @@ Author: Wilhelm Ågren, wagren@kth.se
 Last edited: 05-11-2021
 """
 import torch
+import argparse
 import warnings
 import numpy as np
 import matplotlib.pyplot as plt
@@ -82,67 +83,233 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from dataset import DatasetMEG
 from collections import defaultdict
-from utils import WPRINT, EPRINT, extract_embeddings, viz_tSNE, accuracy, pre_eval, fit, plot_training_history
+from utils import *
 from models import StagerNet, ShallowNet, ContrastiveRPNet, ContrastiveTSNet, BasedNet
 from samplers import RelativePositioningSampler, TemporalShufflingSampler
 
 warnings.filterwarnings('ignore', category=UserWarning)
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-torch.manual_seed(98)
-np.random.seed(98)
-sfreq = 200
-n_channels=24
-history = defaultdict(list)
 
 
-# BasedNet t-SNE results in images/ was with hyperparameters: tau_pos=5, tau_neg=20, batch_size=64, t_epoch=5.
-dataset = DatasetMEG(subj_ids=list(range(2, 3)), reco_ids=[2, 4], t_epoch=5., n_channels=n_channels, verbose=True)
-sampler = TemporalShufflingSampler(dataset.X, dataset.Y, dataset._n_recordings, dataset._n_epochs, tau_pos=6, tau_neg=20, batch_size=4)
 
-if device == 'cuda':
-    torch.backends.cudnn.benchmark = True
+def p_args():
+    parser = argparse.ArgumentParser(prog='MEGpipeline', usage='%(prog)s mode [options]',
+            description='MEGpipeline arguments for setting sampling mode and hyperparameters', allow_abbrev=False)
+    parser.add_argument('mode', action='store', type=str, help='set sampling mode to either RP or TS')
+    parser.add_argument('-v', '--verbose', action='store_true', dest='verbose', help='print pipeline in verbose mode')
+    parser.add_argument('-e', '--epochs', action='store', dest='epochs', type=int,
+            default=DEFAULT_NEPOCHS, help='set the number of epochs to train for')
+    parser.add_argument('-tn', '--tauneg', action='store', dest='tneg', type=int,
+            default=DEFAULT_TAUNEG, help='set the number of epochs to include in the negative context')
+    parser.add_argument('-tp', '--taupos', action='store', dest='tpos', type=int,
+            default=DEFAULT_TAUPOS, help='set the number of epochs to include in the postitive context')
+    parser.add_argument('-lr', '--learningrate', action='store', dest='learningrate', type=float,
+            default=DEFAULT_LEARNINGRATE, help='set the learning rate for training the model')
+    parser.add_argument('-bs', '--batchsize', action='store', dest='batchsize', type=int,
+            default=DEFAULT_BATCHSIZE, help='set the batch size for sampler')
+    args = parser.parse_args()
+    return args
 
 
-#  set up embedder and Siamese network model for training embedder
-#  default hyperparameters for sampler+model+criterion+optimizer:
-#   - t_epoch = 5
-#   - tau_pos = 5
-#   - tau_neg = 20
-#   - batch_size = 64
-#   - lr = 1e-4
-#   - emb_size = 100
-#   - n_epochs = 10
-emb_size = 100
-emb = BasedNet(n_channels, sfreq, n_classes=emb_size)
+class Pipeline:
+    def __init__(self, *args, **kwargs):
+        self._setup(*args, **kwargs)
 
-lr = 1e-4
-n_epochs = 10 
-model = ContrastiveTSNet(emb, emb_size).to(device)
-WPRINT('moving model to device={}'.format(device), model)
-criterion = torch.nn.BCELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    def __str__(self):
+        return 'Pipeline'
 
-#  Get a `baseline` acc and loss for the model on the entire dataset before training
-WPRINT('pre-evaluating model before training', emb)
-(preval_loss, preval_acc) = pre_eval(model, device, criterion, sampler)
-history['loss'].append(preval_loss)
-history['acc'].append(preval_acc)
+    def _information(self):
+        s = '\nPipeline parameters\n-------------------\n'
+        s += 'dataset = {}\n'.format(self._dataset)
+        s += 'sampler = {}\n'.format(self._sampler)
+        s += 'pretext task = {}\n'.format(self._pretext_task)
+        s += 'batch_size = {}\n'.format(self._batch_size)
+        s += 'learning_rate = {}\n'.format(self._learning_rate)
+        s += 'n_epochs = {}\n'.format(self._n_epochs)
+        s += 'tau_pos = {}\n'.format(self._tau_pos)
+        s += 'tau_neg = {}\n'.format(self._tau_neg)
+        s += 'device = {}\n'.format(self._device)
+        s += 'sfreq = {}\n'.format(self._sfreq)
+        s += 'embedder = {}\n'.format(self._embedder)
+        s += 'model = {}\n'.format(self._model)
+        s += 'criterion = {}\n'.format(self._criterion)
+        s += 'optimizer = {}\n'.format(self._optimizer)
+        print(s)
 
-WPRINT('extracting embeddings for t-SNE before training', emb)
-embeddings, Y = extract_embeddings(emb, device, sampler)
-viz_tSNE(embeddings, Y, fname='t-SNE_emb_pre.png')
+    def _setup(self, *args, **kwargs):
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        args = args[0]
+        torch.manual_seed(98)
+        np.random.seed(98)
+        history = defaultdict(list)
+        emb_size = 100
+        sfreq = 200
+        n_channels=24
 
-WPRINT('starting training for {} epochs on device={}'.format(n_epochs, device), emb)
-(t_loss, t_acc) = fit(model, device, criterion, optimizer, sampler, n_epochs=n_epochs)
-history['loss'] += t_loss
-history['acc'] += t_acc
+        if device == 'cuda': torch.backends.cudnn.benchmark = True
 
-WPRINT('plotting loss+acc training evolution', emb)
-plot_training_history(history)
+        arg_sampler = args.mode
+        arg_verbose = args.verbose
+        arg_epochs  = args.epochs
+        arg_tauneg  = args.tneg
+        arg_taupos  = args.tpos
+        arg_lr      = args.learningrate
+        arg_bs      = args.batchsize
+        
+        dataset = DatasetMEG(subj_ids=list(range(2, 3)), reco_ids=[2, 4], t_epoch=5., n_channels=n_channels, verbose=arg_verbose)
+        sampler = RelativePositioningSampler(dataset.X, dataset.Y, dataset._n_recordings, dataset._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs) if arg_sampler == 'RP' else TemporalShufflingSampler(dataset.X, dataset.Y, dataset._n_recordings, dataset._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs)
+        
+        embedder = BasedNet(n_channels, sfreq, n_classes=emb_size)
+        model = ContrastiveRPNet(embedder, emb_size).to(device) if arg_sampler == 'RP' else ContrastiveTSNet(embedder, emb_size).to(device)
+        criterion = torch.nn.BCELoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=arg_lr)
+        
+        self._pretext_task = arg_sampler
+        self._verbose = arg_verbose
+        self._device = device
+        self._batch_size = arg_bs
+        self._tau_pos = arg_taupos
+        self._tau_neg = arg_tauneg
+        self._n_epochs = arg_epochs
+        self._learning_rate = arg_lr
+        self._sfreq = sfreq
+        self._emb_size = emb_size
+        self._n_channels = n_channels
+        self._history = history
+        self._dataset = dataset
+        self._sampler = sampler
+        self._embedder = embedder
+        self._model = model
+        self._criterion = criterion
+        self._optimizer = optimizer
+        self._prev_epoch = -1
 
-WPRINT('extracting embeddings for t-SNE after training', emb)
-embeddings, Y = extract_embeddings(emb, device, sampler)
-viz_tSNE(embeddings, Y, fname='t-SNE_emb_post.png')
+        self._information()
 
-WPRINT('pipeline done', emb)
+    def _save_model(self, *args, **kwargs):
+        WPRINT('saving model state', self)
+        fpath = kwargs.get('fpath', 'params.pth')
+        torch.save(self._model.state_dict(), fpath)
+
+    def  _save_model_and_optimizer(self, epoch, **kwargs):
+        WPRINT('saving model and optimizer state', self)
+        fpath = kwargs.get('fpath', 'params.pth')
+        torch.save({'epoch':epoch,
+                    'model_state_dict': self._model.state_dict(),
+                    'optimizer_state_dict': self._optimizer.state_dict()})
+
+    def _load_model(self, *args, **kwargs):
+        WPRINT('loading model state', self)
+        fpath = kwargs.get('fpath', 'params.pth')
+        self._model.load_state_dict(torch.load(fpath))
+
+    def _load_model_and_optimizer(self, *args, **kwargs):
+        WPRINT('loading model and optimizer state', self)
+        fpath = kwargs.get('fpath', 'params.pth')
+        checkpoint = torch.load(fpath)
+        self._model.load_state_dict(checkpoint['model_state_dict'])
+        self._optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self._prev_epoch = checkpoint['epoch']
+    
+    def _RP_preval(self):
+        with torch.no_grad():
+            pval_loss, pval_acc = 0., 0.
+            for batch, (anchors, samples, labels) in tqdm(enumerate(self._sampler), total=len(self._sampler), desc='[*]  pre-evaluation'):
+                anchors, samples, labels = anchors.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
+                outputs = self._model((anchors, samples))
+                outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
+                loss = self._criterion(outputs, labels)
+                pval_loss += loss.item()/len(self._sampler)
+                pval_acc += accuracy(labels, outputs)/len(self._sampler)
+            print('[*]  pre-evaluation:  loss={:.4f}  acc={:.2f}%'.format(pval_loss, 100*pval_acc))
+            self._history['tloss'].append(pval_loss)
+            self._history['tacc'].append(pval_acc)
+
+    def _TS_preval(self):
+        with torch.no_grad():
+            pval_loss, pval_acc = 0., 0.
+            for batch, (anchors, positives, samples, labels) in tqdm(enumerate(self._sampler), total=len(self._sampler), desc='[*]  pre-evaluation'):
+                anchors, positives, samples, labels = anchors.to(self._device), positives.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
+                outputs = self._model((anchors, positives, samples))
+                outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
+                loss = self._criterion(outputs, labels)
+                pval_loss += loss.item()/len(self._sampler)
+                pval_acc += accuracy(labels, outputs)/len(self._sampler)
+            print('[*]  pre-evaluation:  loss={:.4f}  acc={:.2f}%'.format(pval_loss, 100*pval_acc))
+            self._history['tloss'].append(pval_loss)
+            self._history['tacc'].append(pval_acc)
+
+    def _RP_fit(self):
+        for epoch in range(self._n_epochs):
+            tloss, tacc = 0., 0.
+            for batch, (anchors, samples, labels) in tqdm(enumerate(self._sampler), total=len(self._sampler), desc='[*]  epoch={}/{}'.format(epoch+1, self._n_epochs)):
+                anchors, samples, labels = anchors.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
+                self._optimizer.zero_grad()
+                outputs = self._model((anchors, samples))
+                outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
+                loss = self._criterion(outputs, labels)
+                loss.backward()
+                self._optimizer.step()
+                tloss += loss.item()/len(self._sampler)
+                tacc += accuracy(labels, outputs)/len(self._sampler)
+            self._history['tloss'].append(tloss)
+            self._history['tacc'].append(tacc)
+            print('[*]  epoch={:.2d}  tloss={:.4f}  tacc={:.2f}%'.format(epoch + 1, tloss, 100*tacc))
+            self._save_model_and_optimizer()
+
+    def _TS_fit(self):
+        for epoch in range(self._n_epochs):
+            tloss, tacc = 0., 0.
+            for batch, (anchors, positives, samples, labels) in tqdm(enumerate(self._sampler), total=len(self._sampler), desc='[*]  epoch={}/{}'.format(epoch+1, self._n_epochs)):
+                anchors, positives, samples, labels = anchors.to(self._device), positives.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
+                self._optimizer.zero_grad()
+                outputs = self._model((anchors, positives, samples))
+                outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
+                loss = self._criterion(outputs, labels)
+                loss.backward()
+                self._optimizer.step()
+                tloss += loss.item()/len(self._sampler)
+                tacc += accuracy(labels, outputs)/len(self._sampler)
+            self._history['tloss'].append(tloss)
+            self._history['tacc'].append(tacc)
+            print('[*]  epoch={:.2d}  tloss={:.4f}  tacc={:.2f}%'.format(epoch + 1, tloss, 100*tacc))
+            self._save_model_and_optimizer()
+
+    def _RP_eval(self, *args, **kwargs):
+        raise NotImplementedError('yo this is not done yet hehe')
+
+    def _TS_eval(self, *args, **kwargs):
+        raise NotImplementedError('yo this is not done yet hehe')
+
+    def preval(self, *args, **kwargs):
+        WPRINT('pre-evaluating model before training', self)
+        if self._pretext_task == 'RP':
+            self._RP_preval()
+        else:
+            self._TS_preval()
+        WPRINT('done pre-evaluating model!', self)
+
+    def fit(self, *args, **kwargs):
+        WPRINT('training model on device={}'.format(self._device), self)
+        if self._pretext_task == 'RP':
+            self._RP_fit()
+        else:
+            self._TS_fit()
+        WPRINT('done training!', self)
+    
+    def eval(self, *args, **kwargs):
+        WPRINT('evaluating model', self)
+        if self._pretext_tak == 'RP':
+            self._RP_eval()
+        else:
+            self._TS_eval()
+        WPRINT('done evaluating!', self)
+        
+
+
+if __name__ == "__main__":
+    args = p_args()
+    pipe = Pipeline(args)
+    pipe.preval()
+    pipe.fit()
+    print('Done!')
 
