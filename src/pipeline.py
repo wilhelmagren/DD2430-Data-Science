@@ -104,7 +104,7 @@ class Pipeline:
         fpath = kwargs.get('fpath', 'params.pth')
         torch.save({'epoch':epoch,
                     'model_state_dict': self._model.state_dict(),
-                    'optimizer_state_dict': self._optimizer.state_dict()})
+                    'optimizer_state_dict': self._optimizer.state_dict()}, fpath)
 
     def _load_model(self, *args, **kwargs):
         WPRINT('loading model state', self)
@@ -163,7 +163,7 @@ class Pipeline:
             self._history['tloss'].append(tloss)
             self._history['tacc'].append(tacc)
             print('[*]  epoch={:02d}  tloss={:.4f}  tacc={:.2f}%'.format(epoch + 1, tloss, 100*tacc))
-            self._save_model_and_optimizer()
+            self._save_model_and_optimizer(epoch)
 
     def _TS_fit(self):
         for epoch in range(self._n_epochs):
@@ -181,7 +181,7 @@ class Pipeline:
             self._history['tloss'].append(tloss)
             self._history['tacc'].append(tacc)
             print('[*]  epoch={:02d}  tloss={:.4f}  tacc={:.2f}%'.format(epoch + 1, tloss, 100*tacc))
-            self._save_model_and_optimizer()
+            self._save_model_and_optimizer(epoch)
 
     def _RP_eval(self, *args, **kwargs):
         raise NotImplementedError('yo this is not done yet hehe')
