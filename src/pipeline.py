@@ -155,7 +155,7 @@ class Pipeline:
         arg_lr      = args.learningrate
         arg_bs      = args.batchsize
         
-        dataset = DatasetMEG(subj_ids=list(range(2, 3)), reco_ids=[2, 4], t_epoch=5., n_channels=n_channels, verbose=arg_verbose)
+        dataset = DatasetMEG(subj_ids=list(range(2, 5)), reco_ids=[2, 4], t_epoch=5., n_channels=n_channels, verbose=arg_verbose)
         sampler = RelativePositioningSampler(dataset.X, dataset.Y, dataset._n_recordings, dataset._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs) if arg_sampler == 'RP' else TemporalShufflingSampler(dataset.X, dataset.Y, dataset._n_recordings, dataset._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs)
         
         embedder = BasedNet(n_channels, sfreq, n_classes=emb_size)
