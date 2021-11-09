@@ -77,7 +77,8 @@ Last edited: 09-11-2021
 import argparse
 import warnings
 
-from pipeline import Pipeline
+from utils      import *
+from pipeline   import Pipeline
 warnings.filterwarnings('ignore', category=UserWarning)
 
 
