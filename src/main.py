@@ -104,9 +104,10 @@ def p_args():
 if __name__ == "__main__":
     args = p_args()
     pipe = Pipeline(args)
-    pipe.preval()
-    pipe.t_SNE(fpath='t-SNE_emb_pre.png')
+    #pipe.preval()
+    pipe.t_SNE(dist='pre')
     pipe.fit()
-    pipe.t_SNE(fpath='t-SNE_emb_post.png')
+    pipe.t_SNE(dist='post')
+    pipe.statistics()
     print('Done!')
 
