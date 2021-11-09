@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 
 from utils          import *
 from tqdm           import tqdm
+from scipy.stats    import kstest
 from dataset        import DatasetMEG
 from collections    import defaultdict
 from models         import ContrastiveRPNet, ContrastiveTSNet, BasedNet
@@ -70,7 +71,7 @@ class Pipeline:
         embedder = BasedNet(n_channels, sfreq, n_classes=emb_size)
         model = ContrastiveRPNet(embedder, emb_size).to(device) if arg_sampler == 'RP' else ContrastiveTSNet(embedder, emb_size).to(device)
         criterion = torch.nn.BCELoss()
-        optimizer = torch.optim.Adam(model.parameters(), lr=arg_lr)
+        optimizer = torch.optim.Adam(model.parameters(), lr=arg_lr, weight_decay=1e-2)
         
         self._pretext_task = arg_sampler
         self._verbose = arg_verbose
@@ -91,6 +92,7 @@ class Pipeline:
         self._criterion = criterion
         self._optimizer = optimizer
         self._prev_epoch = -1
+        self._embeddings = dict()
 
         self._information()
 
@@ -209,10 +211,11 @@ class Pipeline:
         X = np.concatenate(list(x.cpu().detach().numpy() for x in X), axis=0)
         return X 
     
-    def _extract_embeddings(self, *args, **kwargs):
+    def _extract_embeddings(self, dist, **kwargs):
         self._model.eval()
         X = self._extract_RP_embeddings() if self._pretext_task == 'RP' else self._extract_TS_embeddings()
         Y = list(z for subz in self._sampler.labels.values() for z in subz)
+        self._embeddings[dist] = X
         return X, Y
 
     def preval(self, *args, **kwargs):
@@ -241,12 +244,23 @@ class Pipeline:
         else:
             self._TS_eval()
         WPRINT('done evaluating!', self)
+    
+    def statistics(self, *args, **kwargs):
+        """ Performs two-sample Kolmogorov-Smirnov test and
+        Kullback-Leibler divergence calculation to see 
+        difference between embeddings distributions, pre/post.
+        """
+        pre_dist = self._embeddings['pre']
+        post_dist = self._embeddings['post']
+        stats, pval = kstest(pre_dist[0, :], post_dist[0, :])
+        print('pval={}, stats={}'.format(pval, stats))
 
     def t_SNE(self, *args, **kwargs):
         WPRINT('visualizing embeddings using t-SNE', self)
-        (embeddings, Y) = self._extract_embeddings()
+        dist = kwargs.get('dist', 'pre')
+        (embeddings, Y) = self._extract_embeddings(dist)
         n_components = kwargs.get('n_components', 2)
-        fpath = kwargs.get('fpath', 't-SNE_emb_post.png')
+        fpath = 't-SNE_emb_{}.png'.format(dist)
         flag = kwargs.get('flag', 'gender')
         tsne = TSNE(n_components=n_components)
         components = tsne.fit_transform(embeddings)
