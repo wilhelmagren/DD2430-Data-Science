@@ -253,7 +253,7 @@ class Pipeline:
                 tacc += accuracy(labels, outputs)/len(self._sampler)
             self._history['tloss'].append(tloss)
             self._history['tacc'].append(tacc)
-            print('[*]  epoch={:.2d}  tloss={:.4f}  tacc={:.2f}%'.format(epoch + 1, tloss, 100*tacc))
+            print('[*]  epoch={:02d}  tloss={:.4f}  tacc={:.2f}%'.format(epoch + 1, tloss, 100*tacc))
             self._save_model_and_optimizer()
 
     def _TS_fit(self):
@@ -271,7 +271,7 @@ class Pipeline:
                 tacc += accuracy(labels, outputs)/len(self._sampler)
             self._history['tloss'].append(tloss)
             self._history['tacc'].append(tacc)
-            print('[*]  epoch={:.2d}  tloss={:.4f}  tacc={:.2f}%'.format(epoch + 1, tloss, 100*tacc))
+            print('[*]  epoch={:02d}  tloss={:.4f}  tacc={:.2f}%'.format(epoch + 1, tloss, 100*tacc))
             self._save_model_and_optimizer()
 
     def _RP_eval(self, *args, **kwargs):
