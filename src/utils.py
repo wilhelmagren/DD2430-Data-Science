@@ -109,7 +109,7 @@ def plot_training_history(history, fname='pretext-task_loss-acc_training.png', s
 def extract_embeddings(model, device, sampler):
     X = list()
     with torch.no_grad():
-        for batch, (anchors, _, _) in tqdm(enumerate(sampler), total=len(sampler), desc='sampling embeddings'):
+        for batch, (anchors, _, _, _) in tqdm(enumerate(sampler), total=len(sampler), desc='sampling embeddings'):
             anchors = anchors.to(device)
             embedding = model(anchors)
             X.append(embedding[0, :][None])
