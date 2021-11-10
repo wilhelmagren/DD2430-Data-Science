@@ -23,7 +23,7 @@ class BasedNet(nn.Module):
     also when inspecting latent space embeddings with t-SNE.
     """
     def __init__(self, n_channels, sfreq, n_conv_chs=40, n_classes=100,
-                 input_size_s=5., temporal_conv_size_s=.25, dropout=.5, **kwargs):
+                 input_size_s=5., temporal_conv_size_s=.5, dropout=.5, **kwargs):
         super(BasedNet, self).__init__()
         self._verbose = kwargs.get('verbose', True)
         input_size = np.ceil(input_size_s * sfreq).astype(int)
@@ -33,31 +33,27 @@ class BasedNet(nn.Module):
         
         self._spatial_conv = nn.Sequential(
                 nn.Conv2d(1, n_channels, (n_channels, 1)),
-                nn.ReLU()
+                nn.ELU()
                 )
 
         self._temporal_conv = nn.Sequential(
-                nn.Conv2d(1, n_conv_chs, (1, temporal_conv_size)),
+                nn.Conv2d(1, n_conv_chs, (3, temporal_conv_size)),
                 nn.BatchNorm2d(n_conv_chs),
-                nn.ReLU(),
+                nn.ELU(),
                 nn.MaxPool2d((1, 2)),
-                nn.Conv2d(n_conv_chs, n_conv_chs, (1, temporal_conv_size // 2)),
+                nn.Conv2d(n_conv_chs, n_conv_chs, (5, temporal_conv_size // 2)),
                 nn.BatchNorm2d(n_conv_chs),
-                nn.ReLU(),
-                nn.MaxPool2d((1, 2)),
-                nn.Conv2d(n_conv_chs, n_conv_chs, (3, temporal_conv_size // 2)),
-                nn.BatchNorm2d(n_conv_chs),
-                nn.ReLU(),
+                nn.ELU(),
                 nn.MaxPool2d((1, 4)),
-                nn.Conv2d(n_conv_chs, n_conv_chs, (10, temporal_conv_size // 2)),
+                nn.Conv2d(n_conv_chs, n_conv_chs, (5, temporal_conv_size // 2)),
                 nn.BatchNorm2d(n_conv_chs),
-                nn.ReLU(),
-                nn.MaxPool2d((1, 2))
+                nn.ELU(),
+                nn.MaxPool2d((1, 4)),
                 )
 
         self._affine_layer = nn.Sequential(
                 nn.Dropout(dropout),
-                nn.Linear(169*n_conv_chs, n_classes)
+                nn.Linear(14*12*n_conv_chs, n_classes)
                 )
            
     def __str__(self):
@@ -290,4 +286,8 @@ class ContrastiveTSNet(nn.Module):
         z1, z2, z3 = self.emb(x1), self.emb(x2), self.emb(x3)
         return self.clf(torch.cat((torch.abs(z1 - z2), torch.abs(z2 - z3)), dim=1)).flatten()
 
+if __name__ == "__main__":
+    model = BasedNet(24, 200, n_conv_chs=16)
+    tensor = torch.Tensor(1, 24, 1000)
+    output = model(torch.Tensor(1, 24, 1000))
 

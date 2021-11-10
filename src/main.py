@@ -98,16 +98,21 @@ def p_args():
             default=DEFAULT_LEARNINGRATE, help='set the learning rate for training the model')
     parser.add_argument('-bs', '--batchsize', action='store', dest='batchsize', type=int,
             default=DEFAULT_BATCHSIZE, help='set the batch size for sampler')
+    parser.add_argument('-s', '--subjects', action='store', dest='sids', type=int,
+            default=DEFAULT_SUBJECTIDS, help='set the number of subjects to include in dataset')
+    parser.add_argument('-r', '--recordings', nargs='*', dest='rids', 
+            default=DEFAULT_RECORDINGIDS, help='set the recordings to include in dataset')
     args = parser.parse_args()
     return args
 
 if __name__ == "__main__":
     args = p_args()
     pipe = Pipeline(args)
-    #pipe.preval()
+    pipe.preval()
     pipe.t_SNE(dist='pre')
     pipe.fit()
     pipe.t_SNE(dist='post')
+    pipe.plot_training()
     pipe.statistics()
     print('Done!')
 

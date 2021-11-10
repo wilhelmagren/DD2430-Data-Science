@@ -1,26 +1,41 @@
 """
-implements full MEG pipeline for project.
+This file implements the full MEG pipeline for the project.
+The class Pipeline loads the requested data and sets up sampler,
+embedder, and model respectively. Features methods fore pre-evaluation,
+fitting model, post-evaluation, t-SNE visualization, statistical tests.
 
 Authors: Wilhelm Ågren <wagren@kth.se>
-Last edited: 09-11-2021
+Last edited: 10-11-2021
 """
 import torch
 import warnings
+import itertools
 import numpy as np
 import matplotlib.pyplot as plt
 
 from utils          import *
 from tqdm           import tqdm
 from scipy.stats    import kstest
-from dataset        import DatasetMEG
+from dataset        import DatasetMEG, Datasubset
 from collections    import defaultdict
 from models         import ContrastiveRPNet, ContrastiveTSNet, BasedNet
 from samplers       import RelativePositioningSampler, TemporalShufflingSampler
-warnings.filterwarnings('ignore', category=UserWarning)
 
 
 
 class Pipeline:
+    """ class implementation for training feature extractors on MEG data.
+    Loads requested .fif MEG files using mne-python and creates epochs of 
+    length t_epoch (in seconds). Sets up sampler depending on set CLI mode,
+    either Relative Positioning (RP) or Temporal Shuffling (TS). 
+
+    Depending on the amount of requested data for the dataset, its split into
+    training and validation subsets. The split is predetermined to be 70/30
+    but can always be changed in the code. Visualizing training loss+acc evolution
+    can be done, but the image is only saved to drive; i.e. not showed during runtime.
+    Make sure to now overwrite existing images in the same directory that you are
+    running these scripts from.
+    """
     def __init__(self, *args, **kwargs):
         self._setup(*args, **kwargs)
 
@@ -30,7 +45,8 @@ class Pipeline:
     def _information(self):
         s = '\nPipeline parameters\n-------------------\n'
         s += 'dataset = {}\n'.format(self._dataset)
-        s += 'sampler = {}\n'.format(self._sampler)
+        s += 'train_sampler = {}\n'.format(self._samplers['train'])
+        s += 'valid_sampler = {}\n'.format(self._samplers['valid'])
         s += 'pretext task = {}\n'.format(self._pretext_task)
         s += 'batch_size = {}\n'.format(self._batch_size)
         s += 'learning_rate = {}\n'.format(self._learning_rate)
@@ -64,17 +80,36 @@ class Pipeline:
         arg_taupos  = args.tpos
         arg_lr      = args.learningrate
         arg_bs      = args.batchsize
+        arg_rids    = args.rids
+        arg_sids    = args.sids
+         
+        self._pretext_task = arg_sampler
+        self._verbose = arg_verbose
+
+        recording_ids = list(map(lambda r: int(r), arg_rids))
+        subject_ids = list(range(2, 2 + arg_sids))
+        dataset = DatasetMEG(subj_ids=subject_ids, reco_ids=recording_ids, t_epoch=5., n_channels=n_channels, verbose=arg_verbose)
         
-        dataset = DatasetMEG(subj_ids=list(range(2, 5)), reco_ids=[2, 4], t_epoch=5., n_channels=n_channels, verbose=arg_verbose)
-        sampler = RelativePositioningSampler(dataset.X, dataset.Y, dataset._n_recordings, dataset._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs) if arg_sampler == 'RP' else TemporalShufflingSampler(dataset.X, dataset.Y, dataset._n_recordings, dataset._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs)
+        tot_recordings = len(subject_ids) * len(recording_ids)
+        self._samplers = dict()
+        if tot_recordings >= 10:
+            # we can split dataset into train/validation 70/30
+            d_train, d_valid = self._split_dataset(dataset, tot_recordings)
+            train_sampler = RelativePositioningSampler(d_train.X, d_train.Y, d_train._n_recordings, d_train._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs) if arg_sampler == 'RP' else TemporalShufflingSampler(d_train.X, d_train.Y, d_train._n_recordings, d_train._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs)
+            valid_sampler = RelativePositioningSampler(d_valid.X, d_valid.Y, d_valid._n_recordings, d_valid._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs) if arg_sampler == 'RP' else TemporalShufflingSampler(d_valid.X, d_valid.Y, d_valid._n_recordings, d_valid._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs)
+
+            self._samplers['train'] = train_sampler
+            self._samplers['valid'] = valid_sampler
+        else:
+            sampler = RelativePositioningSampler(dataset.X, dataset.Y, dataset._n_recordings, dataset._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs) if arg_sampler == 'RP' else TemporalShufflingSampler(dataset.X, dataset.Y, dataset._n_recordings, dataset._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs)
+            self._samplers['train'] = sampler
+            self._samplers['valid'] = None
         
-        embedder = BasedNet(n_channels, sfreq, n_classes=emb_size)
+        embedder = BasedNet(n_channels, sfreq, n_classes=emb_size, n_conv_chs=16)
         model = ContrastiveRPNet(embedder, emb_size).to(device) if arg_sampler == 'RP' else ContrastiveTSNet(embedder, emb_size).to(device)
         criterion = torch.nn.BCELoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=arg_lr, weight_decay=1e-2)
-        
-        self._pretext_task = arg_sampler
-        self._verbose = arg_verbose
+
         self._device = device
         self._batch_size = arg_bs
         self._tau_pos = arg_taupos
@@ -86,7 +121,6 @@ class Pipeline:
         self._n_channels = n_channels
         self._history = history
         self._dataset = dataset
-        self._sampler = sampler
         self._embedder = embedder
         self._model = model
         self._criterion = criterion
@@ -95,6 +129,20 @@ class Pipeline:
         self._embeddings = dict()
 
         self._information()
+
+    def _split_dataset(self, dataset, tot_recordings, p=.7, **kwargs):
+        WPRINT('splitting dataset into train/validation', self)
+        split_idx = int(np.floor(tot_recordings * .7))
+        train_range = list(range(split_idx))
+        valid_range = list(range(split_idx, tot_recordings))
+        X_train, X_valid = {k:dataset.X[k] for k in set(dataset.X).intersection(train_range)}, {k:dataset.X[k] for k in set(dataset.X).intersection(valid_range)}
+        Y_train, Y_valid = {k:dataset.Y[k] for k in set(dataset.Y).intersection(train_range)}, {k:dataset.Y[k] for k in set(dataset.Y).intersection(valid_range)}
+        train_datasubset = Datasubset(X_train, Y_train)
+        valid_datasubset = Datasubset(X_valid, Y_valid)
+
+        WPRINT('splitted dataset into train/validation  70/30\n     train:{}  validation:{}'.format(train_datasubset.shape, valid_datasubset.shape), self)
+
+        return train_datasubset, valid_datasubset
 
     def _save_model(self, *args, **kwargs):
         WPRINT('saving model state', self)
@@ -123,36 +171,46 @@ class Pipeline:
     
     def _RP_preval(self):
         with torch.no_grad():
+            sampler = self._samplers['valid']
             pval_loss, pval_acc = 0., 0.
-            for batch, (anchors, samples, labels) in tqdm(enumerate(self._sampler), total=len(self._sampler), desc='[*]  pre-evaluation'):
+            for batch, (anchors, samples, labels) in tqdm(enumerate(sampler), total=len(sampler), desc='[*]  pre-evaluation'):
                 anchors, samples, labels = anchors.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
                 outputs = self._model((anchors, samples))
                 outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
                 loss = self._criterion(outputs, labels)
-                pval_loss += loss.item()/len(self._sampler)
-                pval_acc += accuracy(labels, outputs)/len(self._sampler)
-            print('[*]  pre-evaluation:  loss={:.4f}  acc={:.2f}%'.format(pval_loss, 100*pval_acc))
+                pval_loss += loss.item()/len(sampler)
+                pval_acc += accuracy(labels, outputs)/len(sampler)
             self._history['tloss'].append(pval_loss)
+            self._history['vloss'].append(pval_loss)
             self._history['tacc'].append(pval_acc)
+            self._history['vacc'].append(pval_acc)
+            print('[*]  pre-evaluation:  loss={:.4f}  acc={:.2f}%'.format(pval_loss, 100*pval_acc))
 
     def _TS_preval(self):
         with torch.no_grad():
+            sampler = self._samplers['valid']
             pval_loss, pval_acc = 0., 0.
-            for batch, (anchors, positives, samples, labels) in tqdm(enumerate(self._sampler), total=len(self._sampler), desc='[*]  pre-evaluation'):
+            for batch, (anchors, positives, samples, labels) in tqdm(enumerate(sampler), total=len(sampler), desc='[*]  pre-evaluation'):
                 anchors, positives, samples, labels = anchors.to(self._device), positives.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
                 outputs = self._model((anchors, positives, samples))
                 outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
                 loss = self._criterion(outputs, labels)
-                pval_loss += loss.item()/len(self._sampler)
-                pval_acc += accuracy(labels, outputs)/len(self._sampler)
-            print('[*]  pre-evaluation:  loss={:.4f}  acc={:.2f}%'.format(pval_loss, 100*pval_acc))
+                pval_loss += loss.item()/len(sampler)
+                pval_acc += accuracy(labels, outputs)/len(sampler)
             self._history['tloss'].append(pval_loss)
+            self._history['vloss'].append(pval_loss)
             self._history['tacc'].append(pval_acc)
+            self._history['vacc'].append(pval_acc)
+            print('[*]  pre-evaluation:  loss={:.4f}  acc={:.2f}%'.format(pval_loss, 100*pval_acc))
 
     def _RP_fit(self):
+        train_sampler = self._samplers['train']
+        valid_sampler = self._samplers['valid']
         for epoch in range(self._n_epochs):
             tloss, tacc = 0., 0.
-            for batch, (anchors, samples, labels) in tqdm(enumerate(self._sampler), total=len(self._sampler), desc='[*]  epoch={}/{}'.format(epoch+1, self._n_epochs)):
+            vloss, vacc = 0., 0.
+            self._model.train()
+            for batch, (anchors, samples, labels) in tqdm(enumerate(train_sampler), total=len(train_sampler), desc='[*]  epoch={}/{}'.format(epoch+1, self._n_epochs)):
                 anchors, samples, labels = anchors.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
                 self._optimizer.zero_grad()
                 outputs = self._model((anchors, samples))
@@ -160,17 +218,33 @@ class Pipeline:
                 loss = self._criterion(outputs, labels)
                 loss.backward()
                 self._optimizer.step()
-                tloss += loss.item()/len(self._sampler)
-                tacc += accuracy(labels, outputs)/len(self._sampler)
+                tloss += loss.item()/len(train_sampler)
+                tacc += accuracy(labels, outputs)/len(train_sampler)
+            self._model.eval()
+            with torch.no_grad():
+                for batch, (anchors, samples, labels) in tqdm(enumerate(valid_sampler), total=len(valid_sampler), desc='[*]  evaluating epoch={}'.format(epoch+1)):
+                    anchors, samples, labels = anchors.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
+                    outputs = self._model((anchors, samples))
+                    outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
+                    loss = self._criterion(outputs, labels)
+                    vloss += loss.item()/len(valid_sampler)
+                    vacc += accuracy(labels, outputs)/len(valid_sampler)
+
             self._history['tloss'].append(tloss)
             self._history['tacc'].append(tacc)
-            print('[*]  epoch={:02d}  tloss={:.4f}  tacc={:.2f}%'.format(epoch + 1, tloss, 100*tacc))
+            self._history['vloss'].append(vloss)
+            self._history['vacc'].append(vacc)
+            print('[*]  epoch={:02d}  tloss={:.4f}  vloss={:.4f}  tacc={:.2f}%  vacc={:.2f}%'.format(epoch + 1, tloss, vloss, 100*tacc, 100*vacc))
             self._save_model_and_optimizer(epoch)
 
     def _TS_fit(self):
+        train_sampler = self._samplers['train']
+        valid_sampler = self._samplers['valid']
         for epoch in range(self._n_epochs):
             tloss, tacc = 0., 0.
-            for batch, (anchors, positives, samples, labels) in tqdm(enumerate(self._sampler), total=len(self._sampler), desc='[*]  epoch={}/{}'.format(epoch+1, self._n_epochs)):
+            vloss, vacc = 0., 0.
+            self._model.train()
+            for batch, (anchors, positives, samples, labels) in tqdm(enumerate(train_sampler), total=len(train_sampler), desc='[*]  epoch={}/{}'.format(epoch+1, self._n_epochs)):
                 anchors, positives, samples, labels = anchors.to(self._device), positives.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
                 self._optimizer.zero_grad()
                 outputs = self._model((anchors, positives, samples))
@@ -178,11 +252,23 @@ class Pipeline:
                 loss = self._criterion(outputs, labels)
                 loss.backward()
                 self._optimizer.step()
-                tloss += loss.item()/len(self._sampler)
-                tacc += accuracy(labels, outputs)/len(self._sampler)
+                tloss += loss.item()/len(train_sampler)
+                tacc += accuracy(labels, outputs)/len(train_sampler)
+            self._model.eval()
+            with torch.no_grad():
+                for batch, (anchors, positives, samples, labels) in tqdm(enumerate(valid_sampler), total=len(valid_sampler), desc='[*]  evaluating epoch={}'.format(epoch+1)):
+                    anchors, positives, samples, labels = anchors.to(self._device), positives.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
+                    outputs = self._model((anchors, positives, samples))
+                    outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
+                    loss = self._criterion(outputs, labels)
+                    vloss += loss.item()/len(valid_sampler)
+                    vacc += accuracy(labels, outputs)/len(valid_sampler)
+
             self._history['tloss'].append(tloss)
             self._history['tacc'].append(tacc)
-            print('[*]  epoch={:02d}  tloss={:.4f}  tacc={:.2f}%'.format(epoch + 1, tloss, 100*tacc))
+            self._history['vloss'].append(vloss)
+            self._history['vacc'].append(vacc)
+            print('[*]  epoch={:02d}  tloss={:.4f}  vloss={:.4f}  tacc={:.2f}%  vacc={:.2f}%'.format(epoch + 1, tloss, vloss, 100*tacc, 100*vacc))
             self._save_model_and_optimizer(epoch)
 
     def _RP_eval(self, *args, **kwargs):
@@ -192,9 +278,9 @@ class Pipeline:
         raise NotImplementedError('yo this is not done yet hehe')
     
     def _extract_RP_embeddings(self, *args, **kwargs):
-        X = list()
+        X, sampler = list(), self._samplers['train']
         with torch.no_grad():
-            for batch, (anchors, _, _) in tqdm(enumerate(self._sampler), total=len(self._sampler), desc='extracting embeddings'):
+            for batch, (anchors, _, _) in tqdm(enumerate(sampler), total=len(sampler), desc='extracting embeddings'):
                 anchors = anchors.to(self._device)
                 embeddings = self._embedder(anchors)
                 X.append(embeddings[0, :][None])
@@ -202,9 +288,9 @@ class Pipeline:
         return X
 
     def _extract_TS_embeddings(self, *args, **kwargs):
-        X = list()
+        X, sampler = list(), self._samplers['train']
         with torch.no_grad():
-            for batch, (anchors, _, _, _) in tqdm(enumerate(self._sampler), total=len(self._sampler), desc='extracting embeddings'):
+            for batch, (anchors, _, _, _) in tqdm(enumerate(sampler), total=len(sampler), desc='extracting embeddings'):
                 anchors = anchors.to(self._device)
                 embeddings = self._embedder(anchors)
                 X.append(embeddings[0, :][None])
@@ -214,7 +300,7 @@ class Pipeline:
     def _extract_embeddings(self, dist, **kwargs):
         self._model.eval()
         X = self._extract_RP_embeddings() if self._pretext_task == 'RP' else self._extract_TS_embeddings()
-        Y = list(z for subz in self._sampler.labels.values() for z in subz)
+        Y = list(z for subz in self._samplers['train'].labels.values() for z in subz)
         self._embeddings[dist] = X
         return X, Y
 
@@ -274,4 +360,30 @@ class Pipeline:
         ax.legend(*zip(*uniques))
         fig.suptitle('t-SNE visualization of latent space')
         plt.savefig(fpath)
+
+    def plot_training(self, *args, **kwargs):
+        WPRINT('plotting training history', self)
+        fname = kwargs.get('fname', 'pretext-task_loss-acc_training.png')
+        plt_style = kwargs.get('style', 'seaborn-talk')
+        plt.style.use(plt_style)
+
+        styles = ['-', ':']
+        markers = ['.', '.']
+        Y1, Y2 = ['tloss', 'vloss'], ['tacc', 'vacc']
+        fig, ax1 = plt.subplots(figsize=(8, 3))
+        ax2 = ax1.twinx()
+        for y1, y2, style, marker in zip(Y1, Y2, styles, markers):
+            ax1.plot(self._history[y1], ls=style, marker=marker, ms=7, c='tab:blue', label=y1)
+            ax2.plot(self._history[y2], ls=style, marker=marker, ms=7, c='tab:orange', label=y2)
+        ax1.tick_params(axis='y', labelcolor='tab:blue')
+        ax1.set_ylabel('Loss', color='tab:blue')
+        ax2.tick_params(axis='y', labelcolor='tab:orange')
+        ax2.set_ylabel('Accuracy [%]', color='tab:orange')
+        ax1.set_xlabel('Epoch')
+
+        lines1, labels1 = ax1.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax2.legend(lines1+lines2, labels1+labels2)
+        plt.tight_layout()
+        plt.savefig(fname)
 

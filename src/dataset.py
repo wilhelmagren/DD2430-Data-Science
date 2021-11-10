@@ -5,12 +5,9 @@ in pretext task sampler class RelativePositioningSampler, and label clamping bas
         2. subject gender,
         3. subject age
 
-File is meant to be used together in the MEG pipeline, and is solely a means for loading the data.
 
-TODO: implement ICA artifact removal when loading .raw fif files using MNE.
-
-Author: Wilhelm Ågren, wagren@kth.se
-Last edited: 03-11-2021
+Authors: Wilhelm Ågren <wagren@kth.se>
+Last edited: 10-11-2021
 """
 import os
 import mne
@@ -230,15 +227,39 @@ class DatasetMEG(Dataset):
         return raw
 
 
-if __name__ == '__main__':
-    """
-    RUNNING THE BELOW CODE TAKES ~11 minutes, and required like 10GB of RAM for
-    allocating numpy arrays for epochs. we probabily won't use all data anyway,
-    but this is the absolute max the programs will allocate.
-    """
-    t_start = time.time()
-    dset = DatasetMEG(subj_ids=list(range(2, 34)), reco_ids=list(range(1, 5)), verbose=True)
-    print(dset.shape)
-    print('loading+epoching+cleaning took: {}s'.format(time.time() - t_start))
+class Datasubset(Dataset):
+    def __init__(self, X, Y, **kwargs):
+        self._verbose = kwargs.get('verbose', True)
+        self.X, self.Y = X, Y
+        self._n_channels = 24
+        self._shift_dict_indices()
+        self._calc_lengths()
+    
+    def __str__(self):
+        return 'Datasubset'
+    
+    def __getitem__(self, idx):
+        return self.X[idx], self.Y[idx]
+
+    def __len__(self):
+        return self._n_recordings
+
+    def _calc_lengths(self, *args, **kwargs):
+        self._n_recordings = len(self.X.keys())
+        self._n_epochs = sum(list(len(epochs) for epochs in self.Y.values()))
+    
+    def _shift_dict_indices(self, *args, **kwargs):
+        WPRINT('shifting data-dict indices', self)
+        indices = list(set(self.X))
+        lowest_idx = min(indices)
+        indices = list(map(lambda i: i - lowest_idx, indices))
+        shifted_X = {k: self.X[k+lowest_idx] for k in indices}
+        shifted_Y = {k: self.Y[k+lowest_idx] for k in indices}
+        self.X = shifted_X
+        self.Y = shifted_Y
+
+    @property
+    def shape(self):
+        return '({}, {}, {})'.format(self._n_recordings, self._n_channels, self._n_epochs)
 
 

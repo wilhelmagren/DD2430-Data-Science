@@ -6,8 +6,8 @@ this file implements: evaluation and training of model,
 visualization of loss+acc history evolution, t-SNE of 
 latent space embeddings, calculating accuracy.
 
-Author: Wilhelm Ågren, wagren@kth.se
-Last edited: 05-11-2021
+Authors: Wilhelm Ågren  <wagren@kth.se>
+Last edited: 10-11-2021
 """
 import os
 import torch
@@ -19,6 +19,8 @@ from scipy.stats import pearsonr, kstwobign
 
 
 
+DEFAULT_SUBJECTIDS = 10
+DEFAULT_RECORDINGIDS = [2, 4]
 DEFAULT_NEPOCHS = 10
 DEFAULT_TAUNEG = 40
 DEFAULT_TAUPOS = 10
@@ -53,29 +55,6 @@ def accuracy(target, pred):
     target, pred = torch.flatten(target), torch.flatten(pred)
     pred = pred > 0.5
     return (target == pred).sum().item() / target.size(0)
-
-def plot_training_history(history, fname='pretext-task_loss-acc_training.png', style='seaborn-talk'):
-    print(history)
-    plt.style.use(style)
-    styles = [':']
-    markers = ['.']
-    Y1, Y2 = ['loss'], ['acc']
-    fig, ax1 = plt.subplots(figsize=(8,3))
-    ax2 = ax1.twinx()
-    for y1, y2, style, marker in zip(Y1, Y2, styles, markers):
-        ax1.plot(history[y1], ls=style, marker=marker, ms=7, c='tab:blue', label=y1)
-        ax2.plot(history[y2], ls=style, marker=marker, ms=7, c='tab:orange', label=y2)
-    ax1.tick_params(axis='y', labelcolor='tab:blue')
-    ax1.set_ylabel('Loss', color='tab:blue')
-    ax2.tick_params(axis='y', labelcolor='tab:orange')
-    ax2.set_ylabel('Accuracy [%]', color='tab:orange')
-    ax1.set_xlabel('Epoch')
-
-    lines1, labels1 = ax1.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax2.legend(lines1+lines2, labels1+labels2)
-    plt.tight_layout()
-    plt.savefig(fname)
 
 def get_subject_id(filepath):
     return filepath.split('_')[0].split('-')[-1]
