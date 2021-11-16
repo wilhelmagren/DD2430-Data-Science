@@ -272,7 +272,7 @@ class ContrastiveTSNet(nn.Module):
         self.emb = emb
         self.clf = nn.Sequential(
                 nn.Dropout(dropout),
-                nn.Linear(2 * emb_size, 1)
+                nn.Linear(2 * emb_size, 2)
                 )
 
     def __str__(self):
@@ -281,7 +281,7 @@ class ContrastiveTSNet(nn.Module):
     def forward(self, x):
         x1, x2, x3 = x
         z1, z2, z3 = self.emb(x1), self.emb(x2), self.emb(x3)
-        return self.clf(torch.cat((torch.abs(z1 - z2), torch.abs(z2 - z3)), dim=1)).flatten()
+        return self.clf(torch.cat((torch.abs(z1 - z2), torch.abs(z2 - z3)), dim=1))
 
 if __name__ == "__main__":
     model = StagerNet(24, 200, n_conv_chs=20).to('cuda')

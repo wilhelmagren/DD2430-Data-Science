@@ -1,0 +1,2 @@
+$ python main.py TS -e 5 -b 16 -s 20 -r 2 4 -tn 10 -tp 10 -lr 0.005 -v
+$ python main.py RP -e 5 -b 16 -s 20 -r 2 4 -tn 10 -tp 5 -lr 0.005 -v
