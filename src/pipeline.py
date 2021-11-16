@@ -5,7 +5,7 @@ embedder, and model respectively. Features methods fore pre-evaluation,
 fitting model, post-evaluation, t-SNE visualization, statistical tests.
 
 Authors: Wilhelm Ågren <wagren@kth.se>
-Last edited: 10-11-2021
+Last edited: 16-11-2021
 """
 import torch
 import warnings
@@ -69,7 +69,8 @@ class Pipeline:
         history = defaultdict(list)
         emb_size = 100
         sfreq = 200
-        n_channels=24
+        n_channels = 24
+        n_components = 2
 
         if device == 'cuda': torch.backends.cudnn.benchmark = True
 
@@ -105,7 +106,7 @@ class Pipeline:
             self._samplers['train'] = sampler
             self._samplers['valid'] = None
         
-        embedder = BasedNet(n_channels, sfreq, n_classes=emb_size, n_conv_chs=16)
+        embedder = BasedNet(n_channels, sfreq, n_classes=emb_size, n_conv_chs=8)
         model = ContrastiveRPNet(embedder, emb_size).to(device) if arg_sampler == 'RP' else ContrastiveTSNet(embedder, emb_size).to(device)
         criterion = torch.nn.BCELoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=arg_lr, weight_decay=1e-2)
@@ -127,12 +128,13 @@ class Pipeline:
         self._optimizer = optimizer
         self._prev_epoch = -1
         self._embeddings = dict()
+        self._tsne = TSNE(n_components=n_components)
 
         self._information()
 
-    def _split_dataset(self, dataset, tot_recordings, p=.7, **kwargs):
+    def _split_dataset(self, dataset, tot_recordings, p=.8, **kwargs):
         WPRINT('splitting dataset into train/validation', self)
-        split_idx = int(np.floor(tot_recordings * .7))
+        split_idx = int(np.floor(tot_recordings * p))
         train_range = list(range(split_idx))
         valid_range = list(range(split_idx, tot_recordings))
         X_train, X_valid = {k:dataset.X[k] for k in set(dataset.X).intersection(train_range)}, {k:dataset.X[k] for k in set(dataset.X).intersection(valid_range)}
@@ -140,7 +142,7 @@ class Pipeline:
         train_datasubset = Datasubset(X_train, Y_train)
         valid_datasubset = Datasubset(X_valid, Y_valid)
 
-        WPRINT('splitted dataset into train/validation  70/30\n     train:{}  validation:{}'.format(train_datasubset.shape, valid_datasubset.shape), self)
+        WPRINT('splitted dataset into train/validation  80/20\n     train:{}  validation:{}'.format(train_datasubset.shape, valid_datasubset.shape), self)
 
         return train_datasubset, valid_datasubset
 
@@ -280,7 +282,7 @@ class Pipeline:
     def _extract_RP_embeddings(self, *args, **kwargs):
         X, sampler = list(), self._samplers['train']
         with torch.no_grad():
-            for batch, (anchors, _, _) in tqdm(enumerate(sampler), total=len(sampler), desc='extracting embeddings'):
+            for batch, (anchors, _, _) in tqdm(enumerate(sampler), total=len(sampler), desc='[*]  extracting embeddings'):
                 anchors = anchors.to(self._device)
                 embeddings = self._embedder(anchors)
                 X.append(embeddings[0, :][None])
@@ -290,19 +292,18 @@ class Pipeline:
     def _extract_TS_embeddings(self, *args, **kwargs):
         X, sampler = list(), self._samplers['train']
         with torch.no_grad():
-            for batch, (anchors, _, _, _) in tqdm(enumerate(sampler), total=len(sampler), desc='extracting embeddings'):
+            for batch, (anchors, _, _, _) in tqdm(enumerate(sampler), total=len(sampler), desc='[*]  extracting embeddings'):
                 anchors = anchors.to(self._device)
                 embeddings = self._embedder(anchors)
                 X.append(embeddings[0, :][None])
         X = np.concatenate(list(x.cpu().detach().numpy() for x in X), axis=0)
         return X 
     
-    def _extract_embeddings(self, dist, **kwargs):
+    def extract_embeddings(self, dist, **kwargs):
         self._model.eval()
         X = self._extract_RP_embeddings() if self._pretext_task == 'RP' else self._extract_TS_embeddings()
         Y = list(z for subz in self._samplers['train'].labels.values() for z in subz)
-        self._embeddings[dist] = X
-        return X, Y
+        self._embeddings[dist] = (X, Y)
 
     def preval(self, *args, **kwargs):
         WPRINT('pre-evaluating model before training', self)
@@ -336,6 +337,7 @@ class Pipeline:
         Kullback-Leibler divergence calculation to see 
         difference between embeddings distributions, pre/post.
         """
+        raise NotImplementedError('this function is broken atm')
         pre_dist = self._embeddings['pre']
         post_dist = self._embeddings['post']
         stats, pval = kstest(pre_dist[0, :], post_dist[0, :])
@@ -344,12 +346,11 @@ class Pipeline:
     def t_SNE(self, *args, **kwargs):
         WPRINT('visualizing embeddings using t-SNE', self)
         dist = kwargs.get('dist', 'pre')
-        (embeddings, Y) = self._extract_embeddings(dist)
-        n_components = kwargs.get('n_components', 2)
-        fpath = 't-SNE_emb_{}.png'.format(dist)
         flag = kwargs.get('flag', 'gender')
-        tsne = TSNE(n_components=n_components)
-        components = tsne.fit_transform(embeddings)
+        (embeddings, Y) = self._embeddings[dist]  # self._extract_embeddings(dist)
+        n_components = kwargs.get('n_components', 2)
+        fpath = 't-SNE_emb_{}-{}.png'.format(flag, dist)
+        components = self._tsne.fit_transform(embeddings)
         fig, ax = plt.subplots()
         for idx, (x, y) in enumerate(components):
             color = tSNE_COLORS[flag][Y[idx][1 if flag == 'gender' else 0]]

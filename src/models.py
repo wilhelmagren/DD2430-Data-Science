@@ -12,6 +12,7 @@ import torch
 import numpy as np
 
 from torch import nn
+from torchsummary import summary
 from utils import WPRINT, EPRINT
 
 
@@ -22,8 +23,8 @@ class BasedNet(nn.Module):
     layers. This model is  3 times as deep, and shows promising results during training and
     also when inspecting latent space embeddings with t-SNE.
     """
-    def __init__(self, n_channels, sfreq, n_conv_chs=40, n_classes=100,
-                 input_size_s=5., temporal_conv_size_s=.5, dropout=.5, **kwargs):
+    def __init__(self, n_channels, sfreq, n_conv_chs=8, n_classes=100,
+                 input_size_s=5., temporal_conv_size_s=1., dropout=.5, **kwargs):
         super(BasedNet, self).__init__()
         self._verbose = kwargs.get('verbose', True)
         input_size = np.ceil(input_size_s * sfreq).astype(int)
@@ -33,27 +34,27 @@ class BasedNet(nn.Module):
         
         self._spatial_conv = nn.Sequential(
                 nn.Conv2d(1, n_channels, (n_channels, 1)),
-                nn.ELU()
+                nn.ReLU()
                 )
 
         self._temporal_conv = nn.Sequential(
-                nn.Conv2d(1, n_conv_chs, (3, temporal_conv_size)),
+                nn.Conv2d(1, n_conv_chs, (1, temporal_conv_size)),
                 nn.BatchNorm2d(n_conv_chs),
-                nn.ELU(),
+                nn.ReLU(),
                 nn.MaxPool2d((1, 2)),
-                nn.Conv2d(n_conv_chs, n_conv_chs, (5, temporal_conv_size // 2)),
+                nn.Conv2d(n_conv_chs, n_conv_chs, (3, temporal_conv_size)),
                 nn.BatchNorm2d(n_conv_chs),
-                nn.ELU(),
-                nn.MaxPool2d((1, 4)),
-                nn.Conv2d(n_conv_chs, n_conv_chs, (5, temporal_conv_size // 2)),
+                nn.ReLU(),
+                nn.MaxPool2d((1, 2)),
+                nn.Conv2d(n_conv_chs, n_conv_chs, (3, temporal_conv_size // 4)),
                 nn.BatchNorm2d(n_conv_chs),
-                nn.ELU(),
-                nn.MaxPool2d((1, 4)),
+                nn.ReLU(),
+                nn.MaxPool2d((1, 5)),
                 )
 
         self._affine_layer = nn.Sequential(
                 nn.Dropout(dropout),
-                nn.Linear(14*12*n_conv_chs, n_classes)
+                nn.Linear(20*10*n_conv_chs, n_classes)
                 )
            
     def __str__(self):
@@ -287,7 +288,8 @@ class ContrastiveTSNet(nn.Module):
         return self.clf(torch.cat((torch.abs(z1 - z2), torch.abs(z2 - z3)), dim=1)).flatten()
 
 if __name__ == "__main__":
-    model = BasedNet(24, 200, n_conv_chs=16)
+    model = BasedNet(24, 200, n_conv_chs=8).to('cuda')
     tensor = torch.Tensor(1, 24, 1000)
+    summary(model, (24, 1000))
     output = model(torch.Tensor(1, 24, 1000))
 

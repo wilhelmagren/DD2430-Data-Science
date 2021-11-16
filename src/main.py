@@ -96,7 +96,7 @@ def p_args():
             default=DEFAULT_TAUPOS, help='set the number of epochs to include in the postitive context')
     parser.add_argument('-lr', '--learningrate', action='store', dest='learningrate', type=float,
             default=DEFAULT_LEARNINGRATE, help='set the learning rate for training the model')
-    parser.add_argument('-bs', '--batchsize', action='store', dest='batchsize', type=int,
+    parser.add_argument('-b', '--batchsize', action='store', dest='batchsize', type=int,
             default=DEFAULT_BATCHSIZE, help='set the batch size for sampler')
     parser.add_argument('-s', '--subjects', action='store', dest='sids', type=int,
             default=DEFAULT_SUBJECTIDS, help='set the number of subjects to include in dataset')
@@ -108,11 +108,16 @@ def p_args():
 if __name__ == "__main__":
     args = p_args()
     pipe = Pipeline(args)
+    #pipe._load_model_and_optimizer()
     pipe.preval()
-    pipe.t_SNE(dist='pre')
+    pipe.extract_embeddings(dist='pre')
+    pipe.t_SNE(dist='pre', flag='gender')
+    pipe.t_SNE(dist='pre', flag='recording')
     pipe.fit()
-    pipe.t_SNE(dist='post')
+    pipe.extract_embeddings(dist='post')
+    pipe.t_SNE(dist='post', flag='gender')
+    pipe.t_SNE(dist='post', flag='recording')
     pipe.plot_training()
-    pipe.statistics()
+    #pipe.statistics()
     print('Done!')
 
