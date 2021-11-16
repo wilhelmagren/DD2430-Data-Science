@@ -1,1 +1,0 @@
-$ python main.py TS -e 10 -b 16 -s 20 -r 2 4 -tn 8 -tp 4 -lr 0.005 -v

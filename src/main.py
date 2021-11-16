@@ -108,7 +108,7 @@ def p_args():
 if __name__ == "__main__":
     args = p_args()
     pipe = Pipeline(args)
-    #pipe._load_model_and_optimizer()
+    pipe._load_model(fpath='../images/EEG-transfer-learning_results/params.pth')
     pipe.preval()
     pipe.extract_embeddings(dist='pre')
     pipe.t_SNE(dist='pre', flag='gender')
@@ -117,8 +117,6 @@ if __name__ == "__main__":
     pipe.extract_embeddings(dist='post')
     pipe.t_SNE(dist='post', flag='gender')
     pipe.t_SNE(dist='post', flag='recording')
-    # pipe.PCA(dist='post', flag='gender')
-    # pipe.PCA(dist='post', flag='recording')
     pipe.plot_training()
     #pipe.statistics()
     print('Done!')

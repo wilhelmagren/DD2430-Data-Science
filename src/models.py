@@ -14,6 +14,7 @@ import numpy as np
 from torch import nn
 from torchsummary import summary
 from utils import WPRINT, EPRINT
+from braindecode.models import SleepStagerChambon2018
 
 
 class BasedNet(nn.Module):
@@ -252,7 +253,7 @@ class ContrastiveRPNet(nn.Module):
         self.emb = emb
         self.clf = nn.Sequential(
             nn.Dropout(dropout),
-            nn.Linear(emb_size, 2)
+            nn.Linear(emb_size, 1)
         )
 
     def __str__(self):
@@ -284,8 +285,10 @@ class ContrastiveTSNet(nn.Module):
         return self.clf(torch.cat((torch.abs(z1 - z2), torch.abs(z2 - z3)), dim=1))
 
 if __name__ == "__main__":
+    """
     model = StagerNet(24, 200, n_conv_chs=20).to('cuda')
     tensor = torch.Tensor(1, 24, 1000)
     summary(model, (24, 1000))
     output = model(torch.Tensor(1, 24, 1000))
+    """
 

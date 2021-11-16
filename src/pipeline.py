@@ -21,6 +21,7 @@ from collections            import defaultdict
 from models                 import ContrastiveRPNet, ContrastiveTSNet, BasedNet, StagerNet
 from samplers               import RelativePositioningSampler, TemporalShufflingSampler
 from sklearn.decomposition  import PCA
+from braindecode.models     import SleepStagerChambon2018
 
 
 
@@ -106,9 +107,10 @@ class Pipeline:
             self._samplers['train'] = sampler
             self._samplers['valid'] = None
         
-        embedder = BasedNet(n_channels, sfreq, n_classes=emb_size, n_conv_chs=16)
+        embedder = SleepStagerChambon2018(n_channels, sfreq, pad_size_s=.125, n_classes=emb_size, n_conv_chs=16,
+                input_size_s=5., dropout=.5, apply_batch_norm=True, time_conv_size_s=.25, max_pool_size_s=.065)  # BasedNet(n_channels, sfreq, n_classes=emb_size, n_conv_chs=16)
         model = ContrastiveRPNet(embedder, emb_size).to(device) if arg_sampler == 'RP' else ContrastiveTSNet(embedder, emb_size).to(device)
-        criterion = torch.nn.CrossEntropyLoss()
+        criterion = torch.nn.BCELoss()  # torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=arg_lr, weight_decay=1e-2)
 
         self._device = device
@@ -175,8 +177,9 @@ class Pipeline:
             sampler = self._samplers['valid']
             pval_loss, pval_acc = 0., 0.
             for batch, (anchors, samples, labels) in tqdm(enumerate(sampler), total=len(sampler), desc='[*]  pre-evaluation'):
-                anchors, samples, labels = anchors.to(self._device), samples.to(self._device), labels.to(self._device).long()
+                anchors, samples, labels = anchors.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
                 outputs = self._model((anchors, samples))
+                outputs = torch.sigmoid(outputs)
                 loss = self._criterion(outputs, labels)
                 pval_loss += loss.item()/len(sampler)
                 pval_acc += accuracy(labels, outputs)/len(sampler)
@@ -191,8 +194,9 @@ class Pipeline:
             sampler = self._samplers['valid']
             pval_loss, pval_acc = 0., 0.
             for batch, (anchors, positives, samples, labels) in tqdm(enumerate(sampler), total=len(sampler), desc='[*]  pre-evaluation'):
-                anchors, positives, samples, labels = anchors.to(self._device), positives.to(self._device), samples.to(self._device), labels.to(self._device).long()
+                anchors, positives, samples, labels = anchors.to(self._device), positives.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
                 outputs = self._model((anchors, positives, samples))
+                outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
                 loss = self._criterion(outputs, labels)
                 pval_loss += loss.item()/len(sampler)
                 pval_acc += accuracy(labels, outputs)/len(sampler)
@@ -210,9 +214,10 @@ class Pipeline:
             vloss, vacc = 0., 0.
             self._model.train()
             for batch, (anchors, samples, labels) in tqdm(enumerate(train_sampler), total=len(train_sampler), desc='[*]  epoch={}/{}'.format(epoch+1, self._n_epochs)):
-                anchors, samples, labels = anchors.to(self._device), samples.to(self._device), labels.to(self._device).long()
+                anchors, samples, labels = anchors.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
                 self._optimizer.zero_grad()
                 outputs = self._model((anchors, samples))
+                outputs = torch.sigmoid(outputs)
                 loss = self._criterion(outputs, labels)
                 loss.backward()
                 self._optimizer.step()
@@ -221,8 +226,9 @@ class Pipeline:
             self._model.eval()
             with torch.no_grad():
                 for batch, (anchors, samples, labels) in tqdm(enumerate(valid_sampler), total=len(valid_sampler), desc='[*]  evaluating epoch={}'.format(epoch+1)):
-                    anchors, samples, labels = anchors.to(self._device), samples.to(self._device), labels.to(self._device).long()
+                    anchors, samples, labels = anchors.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
                     outputs = self._model((anchors, samples))
+                    outputs = torch.sigmoid(outputs)
                     loss = self._criterion(outputs, labels)
                     vloss += loss.item()/len(valid_sampler)
                     vacc += accuracy(labels, outputs)/len(valid_sampler)

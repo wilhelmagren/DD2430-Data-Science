@@ -53,8 +53,10 @@ def EPRINT(msg, instance):
     print("[!]  {}\t{}".format(str(instance), msg))
 
 def accuracy(target, output):
-    _, pred = torch.max(output.data, 1)
-    return (target == pred).sum().item() / output.size(0)
+    # _, pred = torch.max(output.data, 1)
+    target, output = torch.flatten(target), torch.flatten(output)
+    output = output > .5
+    return (target == output).sum().item() / output.size(0)
 
 def get_subject_id(filepath):
     return filepath.split('_')[0].split('-')[-1]
