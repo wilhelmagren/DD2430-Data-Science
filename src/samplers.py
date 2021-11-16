@@ -65,8 +65,8 @@ class RelativePositioningSampler(Sampler):
         [0, 0, 0, 0, (0, 0, 0, 0, 0), 0,  0,  0,  0]
          |        |   |           |   |           |
         lnl      rnl  lp          rp lnr         rnr
-                      |
-                    anchor
+                            |
+                          anchor
 
     This looks similar for the Temporal Shuffling pretext task, but there you sample
     one more epoch in the positive context to base the shuffling label on.
@@ -95,22 +95,21 @@ class RelativePositioningSampler(Sampler):
                 yield self._sample_pair(recording, anchor_epoch)
 
     def _sample_pair(self, recording, anchor_epoch, **kwargs):
-
         batch_anchor_ctx = list()
         batch_sample_ctx = list()
         batch_labels = list()
         positive_idx = anchor_epoch
         for _ in range(self._batch_size):
-            sample_idx = np.random.randint(max(0, positive_idx - self._tau_neg), min(positive_idx + self._tau_pos + self._tau_neg - 1, len(self.data[recording])))
+            sample_idx = np.random.randint(max(0, positive_idx - self._tau_neg - self._tau_pos), min(positive_idx + self._tau_pos + self._tau_neg, len(self.data[recording])))
             while sample_idx == positive_idx:
-                sample_idx = np.random.randint(max(0, positive_idx - self._tau_neg), min(positive_idx + self._tau_pos + self._tau_neg - 1, len(self.data[recording])))
+                sample_idx = np.random.randint(max(0, positive_idx - self._tau_neg - self._tau_pos), min(positive_idx + self._tau_pos + self._tau_neg, len(self.data[recording])))
 
-            lnl_idx = max(0, positive_idx - self._tau_neg)
-            rnl_idx = max(0, positive_idx - 1)
-            lp_idx = positive_idx
-            rp_idx = min(positive_idx + self._tau_pos - 1, len(self.data[recording]) - 1)
-            lnr_idx = min(positive_idx + self._tau_pos, len(self.data[recording]) - 1)
-            rnr_idx = min(positive_idx + self._tau_pos + self._tau_neg - 1, len(self.data[recording]) - 1)
+            lnl_idx = max(0, positive_idx - self._tau_neg - self._tau_pos)
+            rnl_idx = max(0, positive_idx - self._tau_pos - 1)
+            lp_idx = max(0, positive_idx - self._tau_pos)
+            rp_idx = min(positive_idx + self._tau_pos, len(self.data[recording]) - 1)
+            lnr_idx = min(positive_idx + self._tau_pos + 1, len(self.data[recording]) - 1)
+            rnr_idx = min(positive_idx + self._tau_pos + self._tau_neg, len(self.data[recording]) - 1)
 
             label = 1.
             if lnl_idx <= sample_idx <= rnl_idx:

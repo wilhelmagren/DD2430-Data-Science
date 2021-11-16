@@ -69,7 +69,7 @@ class Pipeline:
         history = defaultdict(list)
         emb_size = 100
         sfreq = 200
-        n_channels = 24
+        n_channels = 18
         n_components = 2
 
         if device == 'cuda': torch.backends.cudnn.benchmark = True

@@ -24,7 +24,7 @@ class BasedNet(nn.Module):
     also when inspecting latent space embeddings with t-SNE.
     """
     def __init__(self, n_channels, sfreq, n_conv_chs=8, n_classes=100,
-                 input_size_s=5., temporal_conv_size_s=1., dropout=.5, **kwargs):
+                 input_size_s=5., temporal_conv_size_s=.5, dropout=.5, **kwargs):
         super(BasedNet, self).__init__()
         self._verbose = kwargs.get('verbose', True)
         input_size = np.ceil(input_size_s * sfreq).astype(int)
@@ -42,19 +42,19 @@ class BasedNet(nn.Module):
                 nn.BatchNorm2d(n_conv_chs),
                 nn.ReLU(),
                 nn.MaxPool2d((1, 2)),
-                nn.Conv2d(n_conv_chs, n_conv_chs, (3, temporal_conv_size)),
+                nn.Conv2d(n_conv_chs, n_conv_chs, (1, temporal_conv_size // 2)),
+                nn.BatchNorm2d(n_conv_chs),
+                nn.ReLU(),
+                nn.MaxPool2d((1, 8)),
+                nn.Conv2d(n_conv_chs, n_conv_chs, (1, temporal_conv_size // 4)),
                 nn.BatchNorm2d(n_conv_chs),
                 nn.ReLU(),
                 nn.MaxPool2d((1, 2)),
-                nn.Conv2d(n_conv_chs, n_conv_chs, (3, temporal_conv_size // 4)),
-                nn.BatchNorm2d(n_conv_chs),
-                nn.ReLU(),
-                nn.MaxPool2d((1, 5)),
                 )
 
         self._affine_layer = nn.Sequential(
                 nn.Dropout(dropout),
-                nn.Linear(20*10*n_conv_chs, n_classes)
+                nn.Linear(n_channels*13*n_conv_chs, n_classes)
                 )
            
     def __str__(self):
