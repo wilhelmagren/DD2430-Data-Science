@@ -13,13 +13,14 @@ import itertools
 import numpy as np
 import matplotlib.pyplot as plt
 
-from utils          import *
-from tqdm           import tqdm
-from scipy.stats    import kstest
-from dataset        import DatasetMEG, Datasubset
-from collections    import defaultdict
-from models         import ContrastiveRPNet, ContrastiveTSNet, BasedNet
-from samplers       import RelativePositioningSampler, TemporalShufflingSampler
+from utils                  import *
+from tqdm                   import tqdm
+from scipy.stats            import kstest
+from dataset                import DatasetMEG, Datasubset
+from collections            import defaultdict
+from models                 import ContrastiveRPNet, ContrastiveTSNet, BasedNet, StagerNet
+from samplers               import RelativePositioningSampler, TemporalShufflingSampler
+from sklearn.decomposition  import PCA
 
 
 
@@ -69,8 +70,7 @@ class Pipeline:
         history = defaultdict(list)
         emb_size = 100
         sfreq = 200
-        n_channels = 18
-        n_components = 2
+        n_channels = 2
 
         if device == 'cuda': torch.backends.cudnn.benchmark = True
 
@@ -106,9 +106,9 @@ class Pipeline:
             self._samplers['train'] = sampler
             self._samplers['valid'] = None
         
-        embedder = BasedNet(n_channels, sfreq, n_classes=emb_size, n_conv_chs=8)
+        embedder = BasedNet(n_channels, sfreq, n_classes=emb_size, n_conv_chs=16)
         model = ContrastiveRPNet(embedder, emb_size).to(device) if arg_sampler == 'RP' else ContrastiveTSNet(embedder, emb_size).to(device)
-        criterion = torch.nn.BCELoss()
+        criterion = torch.nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=arg_lr, weight_decay=1e-2)
 
         self._device = device
@@ -128,7 +128,6 @@ class Pipeline:
         self._optimizer = optimizer
         self._prev_epoch = -1
         self._embeddings = dict()
-        self._tsne = TSNE(n_components=n_components)
 
         self._information()
 
@@ -176,9 +175,8 @@ class Pipeline:
             sampler = self._samplers['valid']
             pval_loss, pval_acc = 0., 0.
             for batch, (anchors, samples, labels) in tqdm(enumerate(sampler), total=len(sampler), desc='[*]  pre-evaluation'):
-                anchors, samples, labels = anchors.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
+                anchors, samples, labels = anchors.to(self._device), samples.to(self._device), labels.to(self._device).long()
                 outputs = self._model((anchors, samples))
-                outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
                 loss = self._criterion(outputs, labels)
                 pval_loss += loss.item()/len(sampler)
                 pval_acc += accuracy(labels, outputs)/len(sampler)
@@ -193,9 +191,8 @@ class Pipeline:
             sampler = self._samplers['valid']
             pval_loss, pval_acc = 0., 0.
             for batch, (anchors, positives, samples, labels) in tqdm(enumerate(sampler), total=len(sampler), desc='[*]  pre-evaluation'):
-                anchors, positives, samples, labels = anchors.to(self._device), positives.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
+                anchors, positives, samples, labels = anchors.to(self._device), positives.to(self._device), samples.to(self._device), labels.to(self._device).long()
                 outputs = self._model((anchors, positives, samples))
-                outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
                 loss = self._criterion(outputs, labels)
                 pval_loss += loss.item()/len(sampler)
                 pval_acc += accuracy(labels, outputs)/len(sampler)
@@ -213,10 +210,9 @@ class Pipeline:
             vloss, vacc = 0., 0.
             self._model.train()
             for batch, (anchors, samples, labels) in tqdm(enumerate(train_sampler), total=len(train_sampler), desc='[*]  epoch={}/{}'.format(epoch+1, self._n_epochs)):
-                anchors, samples, labels = anchors.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
+                anchors, samples, labels = anchors.to(self._device), samples.to(self._device), labels.to(self._device).long()
                 self._optimizer.zero_grad()
                 outputs = self._model((anchors, samples))
-                outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
                 loss = self._criterion(outputs, labels)
                 loss.backward()
                 self._optimizer.step()
@@ -225,9 +221,8 @@ class Pipeline:
             self._model.eval()
             with torch.no_grad():
                 for batch, (anchors, samples, labels) in tqdm(enumerate(valid_sampler), total=len(valid_sampler), desc='[*]  evaluating epoch={}'.format(epoch+1)):
-                    anchors, samples, labels = anchors.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
+                    anchors, samples, labels = anchors.to(self._device), samples.to(self._device), labels.to(self._device).long()
                     outputs = self._model((anchors, samples))
-                    outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
                     loss = self._criterion(outputs, labels)
                     vloss += loss.item()/len(valid_sampler)
                     vacc += accuracy(labels, outputs)/len(valid_sampler)
@@ -247,10 +242,9 @@ class Pipeline:
             vloss, vacc = 0., 0.
             self._model.train()
             for batch, (anchors, positives, samples, labels) in tqdm(enumerate(train_sampler), total=len(train_sampler), desc='[*]  epoch={}/{}'.format(epoch+1, self._n_epochs)):
-                anchors, positives, samples, labels = anchors.to(self._device), positives.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
+                anchors, positives, samples, labels = anchors.to(self._device), positives.to(self._device), samples.to(self._device), labels.to(self._device).long()
                 self._optimizer.zero_grad()
                 outputs = self._model((anchors, positives, samples))
-                outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
                 loss = self._criterion(outputs, labels)
                 loss.backward()
                 self._optimizer.step()
@@ -259,9 +253,8 @@ class Pipeline:
             self._model.eval()
             with torch.no_grad():
                 for batch, (anchors, positives, samples, labels) in tqdm(enumerate(valid_sampler), total=len(valid_sampler), desc='[*]  evaluating epoch={}'.format(epoch+1)):
-                    anchors, positives, samples, labels = anchors.to(self._device), positives.to(self._device), samples.to(self._device), torch.unsqueeze(labels.to(self._device), dim=1)
+                    anchors, positives, samples, labels = anchors.to(self._device), positives.to(self._device), samples.to(self._device), labels.to(self._device).long()
                     outputs = self._model((anchors, positives, samples))
-                    outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
                     loss = self._criterion(outputs, labels)
                     vloss += loss.item()/len(valid_sampler)
                     vacc += accuracy(labels, outputs)/len(valid_sampler)
@@ -349,8 +342,9 @@ class Pipeline:
         flag = kwargs.get('flag', 'gender')
         (embeddings, Y) = self._embeddings[dist]  # self._extract_embeddings(dist)
         n_components = kwargs.get('n_components', 2)
+        tsne = TSNE(n_components=n_components)
         fpath = 't-SNE_emb_{}-{}.png'.format(flag, dist)
-        components = self._tsne.fit_transform(embeddings)
+        components = tsne.fit_transform(embeddings)
         fig, ax = plt.subplots()
         for idx, (x, y) in enumerate(components):
             color = tSNE_COLORS[flag][Y[idx][1 if flag == 'gender' else 0]]
@@ -360,6 +354,26 @@ class Pipeline:
         uniques = list((h, l) for i, (h, l) in enumerate(zip(handles, labels)) if l not in labels[:i])
         ax.legend(*zip(*uniques))
         fig.suptitle('t-SNE visualization of latent space')
+        plt.savefig(fpath)
+
+    def PCA(self, *args, **kwargs):
+        WPRINT('visualizing embeddings using PCA', self)
+        dist = kwargs.get('dist', 'pre')
+        flag = kwargs.get('flag', 'gender')
+        n_components = kwargs.get('n_components', 2)
+        (embeddings, Y) = self._embeddings[dist]
+        pca = PCA(n_components=n_components)
+        fpath = 'PCA_emb_{}-{}.png'.format(flag, dist)
+        components = pca.fit_transform(embeddings)
+        fig, ax = plt.subplots()
+        for idx, (x, y) in enumerate(components):
+            color = tSNE_COLORS[flag][Y[idx][1 if flag == 'gender' else 0]]
+            label = tSNE_LABELS[flag][Y[idx][1 if flag == 'gender' else 0]]
+            ax.scatter(x, y, alpha=.6, color=color, label=label)
+        handles, labels = ax.get_legend_handles_labels()
+        uniques = list((h, l) for i, (h, l) in enumerate(zip(handles, labels)) if l not in labels[:i])
+        ax.legend(*zip(*uniques))
+        fig.suptitle('PCA visualization of latent space')
         plt.savefig(fpath)
 
     def plot_training(self, *args, **kwargs):

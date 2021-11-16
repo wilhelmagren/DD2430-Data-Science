@@ -26,16 +26,16 @@ DEFAULT_TAUNEG = 30
 DEFAULT_TAUPOS = 10
 DEFAULT_LEARNINGRATE = 1e-4
 DEFAULT_BATCHSIZE = 64
-LEFT_OCCI = ['MEG1731','MEG1732','MEG1733']
+LEFT_OCCI = ['MEG1741','MEG1742']
 LEFT_TEMPOR = ['MEG0142','MEG0141','MEG0143']
-LEFT_FRONTAL = ['MEG0511','MEG0512','MEG0513']
+LEFT_FRONTAL = ['MEG0511','MEG0512']
 LEFT_PARA = ['MEG1821', 'MEG1822', 'MEG1823']
-RIGHT_OCCI = ['MEG2511','MEG2512','MEG2513']
+RIGHT_OCCI = ['MEG2541','MEG2542']
 RIGHT_TEMPOR = ['MEG1431','MEG1432','MEG1433']
-RIGHT_FRONTAL = ['MEG0921','MEG0922','MEG0923']
+RIGHT_FRONTAL = ['MEG0921','MEG0922']
 RIGHT_PARA = ['MEG2211','MEG2212','MEG2213']
-
-INCLUDE_CHANNELS = LEFT_FRONTAL + RIGHT_FRONTAL + LEFT_PARA + RIGHT_PARA + LEFT_TEMPOR + RIGHT_TEMPOR
+INCLUDE_CHANNELS = ['MEG0812', 'MEG0811']
+#INCLUDE_CHANNELS = LEFT_FRONTAL + RIGHT_FRONTAL + RIGHT_OCCI + LEFT_OCCI
 RELATIVE_DIRPATH = '../data/data-ds-200HZ/'
 STATEID_MAP = {1: 'ses-con_task-rest_ec',
                2: 'ses-con_task-rest_eo',
@@ -52,10 +52,9 @@ def WPRINT(msg, instance):
 def EPRINT(msg, instance):
     print("[!]  {}\t{}".format(str(instance), msg))
 
-def accuracy(target, pred):
-    target, pred = torch.flatten(target), torch.flatten(pred)
-    pred = pred > 0.5
-    return (target == pred).sum().item() / target.size(0)
+def accuracy(target, output):
+    _, pred = torch.max(output.data, 1)
+    return (target == pred).sum().item() / output.size(0)
 
 def get_subject_id(filepath):
     return filepath.split('_')[0].split('-')[-1]

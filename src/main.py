@@ -117,6 +117,8 @@ if __name__ == "__main__":
     pipe.extract_embeddings(dist='post')
     pipe.t_SNE(dist='post', flag='gender')
     pipe.t_SNE(dist='post', flag='recording')
+    # pipe.PCA(dist='post', flag='gender')
+    # pipe.PCA(dist='post', flag='recording')
     pipe.plot_training()
     #pipe.statistics()
     print('Done!')

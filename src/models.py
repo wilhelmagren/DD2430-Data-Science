@@ -23,7 +23,7 @@ class BasedNet(nn.Module):
     layers. This model is  3 times as deep, and shows promising results during training and
     also when inspecting latent space embeddings with t-SNE.
     """
-    def __init__(self, n_channels, sfreq, n_conv_chs=8, n_classes=100,
+    def __init__(self, n_channels, sfreq, n_conv_chs=16, n_classes=100,
                  input_size_s=5., temporal_conv_size_s=.5, dropout=.5, **kwargs):
         super(BasedNet, self).__init__()
         self._verbose = kwargs.get('verbose', True)
@@ -40,21 +40,17 @@ class BasedNet(nn.Module):
         self._temporal_conv = nn.Sequential(
                 nn.Conv2d(1, n_conv_chs, (1, temporal_conv_size)),
                 nn.BatchNorm2d(n_conv_chs),
+                nn.MaxPool2d((1, 5)),
                 nn.ReLU(),
-                nn.MaxPool2d((1, 2)),
-                nn.Conv2d(n_conv_chs, n_conv_chs, (1, temporal_conv_size // 2)),
+                nn.Conv2d(n_conv_chs, n_conv_chs, (1, temporal_conv_size)),
                 nn.BatchNorm2d(n_conv_chs),
-                nn.ReLU(),
                 nn.MaxPool2d((1, 8)),
-                nn.Conv2d(n_conv_chs, n_conv_chs, (1, temporal_conv_size // 4)),
-                nn.BatchNorm2d(n_conv_chs),
                 nn.ReLU(),
-                nn.MaxPool2d((1, 2)),
                 )
 
         self._affine_layer = nn.Sequential(
                 nn.Dropout(dropout),
-                nn.Linear(n_channels*13*n_conv_chs, n_classes)
+                nn.Linear(n_channels*10*n_conv_chs, n_classes)
                 )
            
     def __str__(self):
@@ -118,8 +114,8 @@ class StagerNet(nn.Module):
            26(4), 758-769.
     """
     def __init__(self, n_channels, sfreq, n_conv_chs=8, time_conv_size_s=0.25,
-                 max_pool_size_s=0.05, pad_size_s=0.125, input_size_s=2.,
-                 n_classes=5, dropout=0.25, apply_batch_norm=False,
+                 max_pool_size_s=0.05, pad_size_s=.125, input_size_s=5.,
+                 n_classes=5, dropout=.5, apply_batch_norm=False,
                  return_feats=False):
         super(StagerNet, self).__init__()
 
@@ -256,7 +252,7 @@ class ContrastiveRPNet(nn.Module):
         self.emb = emb
         self.clf = nn.Sequential(
             nn.Dropout(dropout),
-            nn.Linear(emb_size, 1)
+            nn.Linear(emb_size, 2)
         )
 
     def __str__(self):
@@ -265,7 +261,7 @@ class ContrastiveRPNet(nn.Module):
     def forward(self, x):
         x1, x2 = x
         z1, z2 = self.emb(x1), self.emb(x2)
-        return self.clf(torch.abs(z1 - z2)).flatten()
+        return self.clf(torch.abs(z1 - z2))
 
 class ContrastiveTSNet(nn.Module):
     """
@@ -288,7 +284,7 @@ class ContrastiveTSNet(nn.Module):
         return self.clf(torch.cat((torch.abs(z1 - z2), torch.abs(z2 - z3)), dim=1)).flatten()
 
 if __name__ == "__main__":
-    model = BasedNet(24, 200, n_conv_chs=8).to('cuda')
+    model = StagerNet(24, 200, n_conv_chs=20).to('cuda')
     tensor = torch.Tensor(1, 24, 1000)
     summary(model, (24, 1000))
     output = model(torch.Tensor(1, 24, 1000))
