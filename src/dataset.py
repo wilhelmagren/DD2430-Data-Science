@@ -171,7 +171,7 @@ class DatasetMEG(Dataset):
         """
         apply standardized residual (normalizaiton) and scale values
         """
-        epoch = epoch * 10e9
+        epoch = epoch * 1e12
         n_channels = epoch.shape[0]
         for channel in range(n_channels):
             mu = epoch[channel, :].mean()

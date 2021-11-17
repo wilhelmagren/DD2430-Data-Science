@@ -185,9 +185,7 @@ class Pipeline:
                 pval_acc += accuracy(labels, outputs)/len(sampler)
             self._history['tloss'].append(pval_loss)
             self._history['vloss'].append(pval_loss)
-            self._history['tacc'].append(pval_acc)
-            self._history['vacc'].append(pval_acc)
-            print('[*]  pre-evaluation:  loss={:.4f}  acc={:.2f}%'.format(pval_loss, 100*pval_acc))
+            print('[*]  pre-evaluation:  loss={:.4f}'.format(pval_loss))
 
     def _TS_preval(self):
         with torch.no_grad():
@@ -199,12 +197,9 @@ class Pipeline:
                 outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
                 loss = self._criterion(outputs, labels)
                 pval_loss += loss.item()/len(sampler)
-                pval_acc += accuracy(labels, outputs)/len(sampler)
             self._history['tloss'].append(pval_loss)
             self._history['vloss'].append(pval_loss)
-            self._history['tacc'].append(pval_acc)
-            self._history['vacc'].append(pval_acc)
-            print('[*]  pre-evaluation:  loss={:.4f}  acc={:.2f}%'.format(pval_loss, 100*pval_acc))
+            print('[*]  pre-evaluation:  loss={:.4f}'.format(pval_loss))
 
     def _RP_fit(self):
         train_sampler = self._samplers['train']
@@ -222,7 +217,6 @@ class Pipeline:
                 loss.backward()
                 self._optimizer.step()
                 tloss += loss.item()/len(train_sampler)
-                tacc += accuracy(labels, outputs)/len(train_sampler)
             self._model.eval()
             with torch.no_grad():
                 for batch, (anchors, samples, labels) in tqdm(enumerate(valid_sampler), total=len(valid_sampler), desc='[*]  evaluating epoch={}'.format(epoch+1)):
@@ -231,13 +225,10 @@ class Pipeline:
                     outputs = torch.sigmoid(outputs)
                     loss = self._criterion(outputs, labels)
                     vloss += loss.item()/len(valid_sampler)
-                    vacc += accuracy(labels, outputs)/len(valid_sampler)
 
             self._history['tloss'].append(tloss)
-            self._history['tacc'].append(tacc)
             self._history['vloss'].append(vloss)
-            self._history['vacc'].append(vacc)
-            print('[*]  epoch={:02d}  tloss={:.4f}  vloss={:.4f}  tacc={:.2f}%  vacc={:.2f}%'.format(epoch + 1, tloss, vloss, 100*tacc, 100*vacc))
+            print('[*]  epoch={:02d}  tloss={:.4f}  vloss={:.4f}'.format(epoch + 1, tloss, vloss))
             self._save_model_and_optimizer(epoch)
 
     def _TS_fit(self):
@@ -255,7 +246,6 @@ class Pipeline:
                 loss.backward()
                 self._optimizer.step()
                 tloss += loss.item()/len(train_sampler)
-                tacc += accuracy(labels, outputs)/len(train_sampler)
             self._model.eval()
             with torch.no_grad():
                 for batch, (anchors, positives, samples, labels) in tqdm(enumerate(valid_sampler), total=len(valid_sampler), desc='[*]  evaluating epoch={}'.format(epoch+1)):
@@ -263,13 +253,10 @@ class Pipeline:
                     outputs = self._model((anchors, positives, samples))
                     loss = self._criterion(outputs, labels)
                     vloss += loss.item()/len(valid_sampler)
-                    vacc += accuracy(labels, outputs)/len(valid_sampler)
 
             self._history['tloss'].append(tloss)
-            self._history['tacc'].append(tacc)
             self._history['vloss'].append(vloss)
-            self._history['vacc'].append(vacc)
-            print('[*]  epoch={:02d}  tloss={:.4f}  vloss={:.4f}  tacc={:.2f}%  vacc={:.2f}%'.format(epoch + 1, tloss, vloss, 100*tacc, 100*vacc))
+            print('[*]  epoch={:02d}  tloss={:.4f}  vloss={:.4f}'.format(epoch + 1, tloss, vloss))
             self._save_model_and_optimizer(epoch)
 
     def _RP_eval(self, *args, **kwargs):
@@ -300,6 +287,7 @@ class Pipeline:
     
     def extract_embeddings(self, dist, **kwargs):
         self._model.eval()
+        self._embedder.return_feats = True
         X = self._extract_RP_embeddings() if self._pretext_task == 'RP' else self._extract_TS_embeddings()
         Y = list(z for subz in self._samplers['train'].labels.values() for z in subz)
         self._embeddings[dist] = (X, Y)
@@ -307,6 +295,7 @@ class Pipeline:
     def preval(self, *args, **kwargs):
         WPRINT('pre-evaluating model before training', self)
         self._model.eval()
+        self._embedder.return_feats = False
         if self._pretext_task == 'RP':
             self._RP_preval()
         else:
@@ -316,6 +305,7 @@ class Pipeline:
     def fit(self, *args, **kwargs):
         WPRINT('training model on device={}'.format(self._device), self)
         self._model.train()
+        self._embedder.return_feats = False
         if self._pretext_task == 'RP':
             self._RP_fit()
         else:
@@ -346,10 +336,11 @@ class Pipeline:
         WPRINT('visualizing embeddings using t-SNE', self)
         dist = kwargs.get('dist', 'pre')
         flag = kwargs.get('flag', 'gender')
-        (embeddings, Y) = self._embeddings[dist]  # self._extract_embeddings(dist)
         n_components = kwargs.get('n_components', 2)
-        tsne = TSNE(n_components=n_components)
-        fpath = 't-SNE_emb_{}-{}.png'.format(flag, dist)
+        perplexity = kwargs.get('perplexity', 30)
+        (embeddings, Y) = self._embeddings[dist]  # self._extract_embeddings(dist)
+        tsne = TSNE(n_components=n_components, perplexity=perplexity)
+        fpath = 't-SNE_emb_{}-{}_perplexity-{}.png'.format(flag, dist, perplexity)
         components = tsne.fit_transform(embeddings)
         fig, ax = plt.subplots()
         for idx, (x, y) in enumerate(components):
@@ -392,19 +383,14 @@ class Pipeline:
         markers = ['.', '.']
         Y1, Y2 = ['tloss', 'vloss'], ['tacc', 'vacc']
         fig, ax1 = plt.subplots(figsize=(8, 3))
-        ax2 = ax1.twinx()
-        for y1, y2, style, marker in zip(Y1, Y2, styles, markers):
+        for y1, style, marker in zip(Y1, styles, markers):
             ax1.plot(self._history[y1], ls=style, marker=marker, ms=7, c='tab:blue', label=y1)
-            ax2.plot(self._history[y2], ls=style, marker=marker, ms=7, c='tab:orange', label=y2)
         ax1.tick_params(axis='y', labelcolor='tab:blue')
         ax1.set_ylabel('Loss', color='tab:blue')
-        ax2.tick_params(axis='y', labelcolor='tab:orange')
-        ax2.set_ylabel('Accuracy [%]', color='tab:orange')
         ax1.set_xlabel('Epoch')
 
         lines1, labels1 = ax1.get_legend_handles_labels()
-        lines2, labels2 = ax2.get_legend_handles_labels()
-        ax2.legend(lines1+lines2, labels1+labels2)
+        ax1.legend(lines1, labels1)
         plt.tight_layout()
         plt.savefig(fname)
 
