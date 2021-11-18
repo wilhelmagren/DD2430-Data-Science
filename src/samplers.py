@@ -226,7 +226,7 @@ class NRPSampler(Sampler):
         batch_sample_ctx = list()
         batch_labels = list()
         for _ in range(self._batch_size):
-            same_recording = True if np.random.uniform(low=0., high=1.) >= .5 else False
+            same_recording = True if np.random.uniform(low=0., high=1.) >= .25 else False
             lctx_idx = max(0, anchor_id - self._tau)
             rctx_idx = min(anchor_id + self._tau + 1, max_idx)
             sampled_idx = np.random.randint(lctx_idx, rctx_idx)
