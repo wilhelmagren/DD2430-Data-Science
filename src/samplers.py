@@ -200,7 +200,45 @@ class TemporalShufflingSampler(Sampler):
         return X_ANCHOR, X_POSITIVE, X_SAMPLE, Y
 
 
+class NRPSampler(Sampler):
+    def __init__(self, data, labels, n_recordings, n_epochs, **kwargs):
+        self.data = data
+        self.labels = labels
+        self._n_recordings = n_recordings
+        self._n_epochs = n_epochs
+        self._tau = kwargs.get('tau_pos', 5)
+        self._batch_size = kwargs.get('batch_size', 32)
 
+    def __str__(self):
+        return 'TSSampler'
 
+    def __len__(self):
+        return self._n_epochs
 
+    def __iter__(self):
+        for recording in range(self._n_recordings - 1):
+            min_n_epochs = min(len(self.data[recording]), len(self.data[recording + 1]))
+            for anchor_epoch in range(min_n_epochs):
+                yield self._sample_pair(recording, recording + 1, anchor_epoch, min_n_epochs)
+
+    def _sample_pair(self, r1_id, r2_id, anchor_id, max_idx):
+        batch_anchor_ctx = list()
+        batch_sample_ctx = list()
+        batch_labels = list()
+        for _ in range(self._batch_size):
+            same_recording = True if np.random.uniform(low=0., high=1.) >= .5 else False
+            lctx_idx = max(0, anchor_id - self._tau)
+            rctx_idx = min(anchor_id + self._tau + 1, max_idx)
+            sampled_idx = np.random.randint(lctx_idx, rctx_idx)
+            
+            label = 1. if same_recording else 0.
+            batch_anchor_ctx.append(self.data[r1_id][anchor_id][None])
+            batch_sample_ctx.append(self.data[r1_id if same_recording else r2_id][sampled_idx][None])
+            batch_labels.append(label)
+        
+        X_ANCHOR = torch.Tensor(np.concatenate(batch_anchor_ctx, axis=0))
+        X_SAMPLE = torch.Tensor(np.concatenate(batch_sample_ctx, axis=0))
+        Y = torch.Tensor(np.array(batch_labels))
+
+        return (X_ANCHOR, X_SAMPLE, Y)
 

@@ -231,7 +231,7 @@ class Datasubset(Dataset):
     def __init__(self, X, Y, **kwargs):
         self._verbose = kwargs.get('verbose', True)
         self.X, self.Y = X, Y
-        self._n_channels = 24
+        self._n_channels = 2
         self._shift_dict_indices()
         self._calc_lengths()
     

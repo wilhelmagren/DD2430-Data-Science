@@ -1,0 +1,5 @@
+best epoch:	5
+tloss:		0.2951
+vloss:		0.5257
+pval:		0.00041
+stats:		0.29

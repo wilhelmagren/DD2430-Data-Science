@@ -115,28 +115,9 @@ if __name__ == "__main__":
     pipe.t_SNE(dist='pre', flag='recording', perplexity=15)
     pipe.fit()
     pipe.extract_embeddings(dist='post')
-    """
-    pipe.t_SNE(dist='post', flag='gender', perplexity=5)
-    pipe.t_SNE(dist='post', flag='recording', perplexity=5)
-
-    pipe.t_SNE(dist='post', flag='gender', perplexity=10)
-    pipe.t_SNE(dist='post', flag='recording', perplexity=10)
-
-    pipe.t_SNE(dist='post', flag='gender', perplexity=20)
-    pipe.t_SNE(dist='post', flag='recording', perplexity=20)
-
-    pipe.t_SNE(dist='post', flag='gender', perplexity=30)
-    pipe.t_SNE(dist='post', flag='recording', perplexity=30)
-
-    pipe.t_SNE(dist='post', flag='gender', perplexity=40)
-    pipe.t_SNE(dist='post', flag='recording', perplexity=40)
-
-    pipe.t_SNE(dist='post', flag='gender', perplexity=50)
-    pipe.t_SNE(dist='post', flag='recording', perplexity=50)
-    """
     pipe.t_SNE(dist='post', flag='gender', perplexity=15)
     pipe.t_SNE(dist='post', flag='recording', perplexity=15)
     pipe.plot_training()
-    #pipe.statistics()
+    pipe.statistics()
     print('Done!')
 

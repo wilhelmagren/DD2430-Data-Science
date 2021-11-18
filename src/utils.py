@@ -34,7 +34,7 @@ RIGHT_OCCI = ['MEG2541','MEG2542']
 RIGHT_TEMPOR = ['MEG1431','MEG1432','MEG1433']
 RIGHT_FRONTAL = ['MEG0921','MEG0922']
 RIGHT_PARA = ['MEG2211','MEG2212','MEG2213']
-INCLUDE_CHANNELS = ['MEG0812', 'MEG0811']
+INCLUDE_CHANNELS = ['MEG0811', 'MEG0812']
 #INCLUDE_CHANNELS = LEFT_FRONTAL + RIGHT_FRONTAL + RIGHT_OCCI + LEFT_OCCI
 RELATIVE_DIRPATH = '../data/data-ds-200HZ/'
 STATEID_MAP = {1: 'ses-con_task-rest_ec',
@@ -42,8 +42,9 @@ STATEID_MAP = {1: 'ses-con_task-rest_ec',
                3: 'ses-psd_task-rest_ec',
                4: 'ses-psd_task-rest_eo'}
 tSNE_COLORS = {'gender':{0: 'red', 1: 'blue'}, 
-        'recording':{1: 'dodgerblue', 2: 'blue', 3: 'red', 4: 'orange'}}
+        'recording':{1: 'dodgerblue', 2: 'blue', 3: 'red', 4: 'hotpink'}}
 tSNE_LABELS = {'gender':{0: 'F', 1: 'M'}, 'recording':STATEID_MAP}
+tSNE_MARKERS = {'gender':{0: 'h', 1: 'X'}, 'recording':{1: 'h', 2: 'h', 3: 'X', 4: 'X'}}
 
 
 def WPRINT(msg, instance):

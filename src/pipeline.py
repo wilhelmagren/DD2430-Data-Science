@@ -19,7 +19,7 @@ from scipy.stats            import kstest
 from dataset                import DatasetMEG, Datasubset
 from collections            import defaultdict
 from models                 import ContrastiveRPNet, ContrastiveTSNet, BasedNet, StagerNet
-from samplers               import RelativePositioningSampler, TemporalShufflingSampler
+from samplers               import RelativePositioningSampler, TemporalShufflingSampler, NRPSampler
 from sklearn.decomposition  import PCA
 from braindecode.models     import SleepStagerChambon2018
 
@@ -95,15 +95,14 @@ class Pipeline:
         tot_recordings = len(subject_ids) * len(recording_ids)
         self._samplers = dict()
         if tot_recordings >= 10:
-            # we can split dataset into train/validation 70/30
             d_train, d_valid = self._split_dataset(dataset, tot_recordings)
-            train_sampler = RelativePositioningSampler(d_train.X, d_train.Y, d_train._n_recordings, d_train._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs) if arg_sampler == 'RP' else TemporalShufflingSampler(d_train.X, d_train.Y, d_train._n_recordings, d_train._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs)
-            valid_sampler = RelativePositioningSampler(d_valid.X, d_valid.Y, d_valid._n_recordings, d_valid._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs) if arg_sampler == 'RP' else TemporalShufflingSampler(d_valid.X, d_valid.Y, d_valid._n_recordings, d_valid._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs)
+            train_sampler = NRPSampler(d_train.X, d_train.Y, d_train._n_recordings, d_train._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs) if arg_sampler == 'RP' else TemporalShufflingSampler(d_train.X, d_train.Y, d_train._n_recordings, d_train._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs)
+            valid_sampler = NRPSampler(d_valid.X, d_valid.Y, d_valid._n_recordings, d_valid._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs) if arg_sampler == 'RP' else TemporalShufflingSampler(d_valid.X, d_valid.Y, d_valid._n_recordings, d_valid._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs)
 
             self._samplers['train'] = train_sampler
             self._samplers['valid'] = valid_sampler
         else:
-            sampler = RelativePositioningSampler(dataset.X, dataset.Y, dataset._n_recordings, dataset._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs) if arg_sampler == 'RP' else TemporalShufflingSampler(dataset.X, dataset.Y, dataset._n_recordings, dataset._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs)
+            sampler = NRPSampler(dataset.X, dataset.Y, dataset._n_recordings, dataset._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs) if arg_sampler == 'RP' else TemporalShufflingSampler(dataset.X, dataset.Y, dataset._n_recordings, dataset._n_epochs, tau_pos=arg_taupos, tau_neg=arg_tauneg, batch_size=arg_bs)
             self._samplers['train'] = sampler
             self._samplers['valid'] = None
         
@@ -135,11 +134,22 @@ class Pipeline:
 
     def _split_dataset(self, dataset, tot_recordings, p=.8, **kwargs):
         WPRINT('splitting dataset into train/validation', self)
-        split_idx = int(np.floor(tot_recordings * p))
-        train_range = list(range(split_idx))
-        valid_range = list(range(split_idx, tot_recordings))
-        X_train, X_valid = {k:dataset.X[k] for k in set(dataset.X).intersection(train_range)}, {k:dataset.X[k] for k in set(dataset.X).intersection(valid_range)}
-        Y_train, Y_valid = {k:dataset.Y[k] for k in set(dataset.Y).intersection(train_range)}, {k:dataset.Y[k] for k in set(dataset.Y).intersection(valid_range)}
+        X_train, X_valid = list(), list()
+        Y_train, Y_valid = list(), list()
+        for recording in dataset.X:
+            split_idx = int(p * len(dataset.X[recording]))
+            xt, xv = dataset.X[recording][:split_idx], dataset.X[recording][split_idx:]
+            yt, yv = dataset.Y[recording][:split_idx], dataset.Y[recording][split_idx:]
+            X_train.append(xt)
+            X_valid.append(xv)
+            Y_train.append(yt)
+            Y_valid.append(yv)
+
+        X_train = {k: X_train[k] for k in range(len(X_train))}
+        X_valid = {k: X_valid[k] for k in range(len(X_valid))}
+        Y_train = {k: Y_train[k] for k in range(len(Y_train))}
+        Y_valid = {k: Y_valid[k] for k in range(len(Y_valid))}
+
         train_datasubset = Datasubset(X_train, Y_train)
         valid_datasubset = Datasubset(X_valid, Y_valid)
 
@@ -326,11 +336,15 @@ class Pipeline:
         Kullback-Leibler divergence calculation to see 
         difference between embeddings distributions, pre/post.
         """
-        raise NotImplementedError('this function is broken atm')
-        pre_dist = self._embeddings['pre']
-        post_dist = self._embeddings['post']
-        stats, pval = kstest(pre_dist[0, :], post_dist[0, :])
-        print('pval={}, stats={}'.format(pval, stats))
+        pre_dist = self._embeddings['pre'][0]
+        post_dist = self._embeddings['post'][0]
+        stats, pval = 0., 0.
+        num_samples = post_dist.shape[0]
+        for idx in range(num_samples):
+            a, b = kstest(post_dist[idx, :], pre_dist[idx, :])
+            stats += a
+            pval += b
+        print('pval={}, stats={}'.format(pval/num_samples, stats/num_samples))
 
     def t_SNE(self, *args, **kwargs):
         WPRINT('visualizing embeddings using t-SNE', self)
@@ -340,13 +354,14 @@ class Pipeline:
         perplexity = kwargs.get('perplexity', 30)
         (embeddings, Y) = self._embeddings[dist]  # self._extract_embeddings(dist)
         tsne = TSNE(n_components=n_components, perplexity=perplexity)
-        fpath = 't-SNE_emb_{}-{}_perplexity-{}.png'.format(flag, dist, perplexity)
+        fpath = 't-SNE_emb_{}-{}.png'.format(flag, dist)
         components = tsne.fit_transform(embeddings)
         fig, ax = plt.subplots()
         for idx, (x, y) in enumerate(components):
             color = tSNE_COLORS[flag][Y[idx][1 if flag == 'gender' else 0]]
             label = tSNE_LABELS[flag][Y[idx][1 if flag == 'gender' else 0]]
-            ax.scatter(x, y, alpha=.6, color=color, label=label)
+            marker = tSNE_MARKERS[flag][Y[idx][1 if flag == 'gender' else 0]]
+            ax.scatter(x, y, alpha=.5, color=color, label=label, marker=marker)
         handles, labels = ax.get_legend_handles_labels()
         uniques = list((h, l) for i, (h, l) in enumerate(zip(handles, labels)) if l not in labels[:i])
         ax.legend(*zip(*uniques))
