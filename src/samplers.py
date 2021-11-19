@@ -231,7 +231,7 @@ class NRPSampler(Sampler):
             rctx_idx = min(anchor_id + self._tau + 1, max_idx)
             sampled_idx = np.random.randint(lctx_idx, rctx_idx)
             
-            label = 1. if same_recording else -1.
+            label = 1. if same_recording else 0.
             batch_anchor_ctx.append(self.data[r1_id][anchor_id][None])
             batch_sample_ctx.append(self.data[r1_id if same_recording else r2_id][sampled_idx][None])
             batch_labels.append(label)
