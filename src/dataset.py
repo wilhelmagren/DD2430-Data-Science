@@ -16,7 +16,7 @@ import time
 from collections import defaultdict
 from torch.utils.data import Dataset
 from mne.preprocessing import ICA, create_eog_epochs, create_ecg_epochs
-from utils import WPRINT, EPRINT, RELATIVE_DIRPATH, STATEID_MAP, get_subject_id, get_recording_id, get_subject_gender, get_subject_age, INCLUDE_CHANNELS
+from utils import WPRINT, EPRINT, RELATIVE_DIRPATH, STATEID_MAP, get_subject_id, get_recording_id, get_subject_gender, get_subject_age, INCLUDE_CHANNELS, shuffle_files
 
 
 
@@ -200,6 +200,7 @@ class DatasetMEG(Dataset):
                     subject_recording_files.append(file)
 
         subject_recording_files = list((get_subject_id(f), get_recording_id(f), get_subject_gender(f), get_subject_age(f), f) for f in subject_recording_files)
+        # subject_recording_files = shuffle_files(subject_recording_files)
         WPRINT('done fetching MEG filepaths', self)
         return subject_recording_files
     

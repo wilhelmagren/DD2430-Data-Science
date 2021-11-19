@@ -195,7 +195,9 @@ class Pipeline:
                 pval_acc += accuracy(labels, outputs)/len(sampler)
             self._history['tloss'].append(pval_loss)
             self._history['vloss'].append(pval_loss)
-            print('[*]  pre-evaluation:  loss={:.4f}'.format(pval_loss))
+            self._history['tacc'].append(pval_acc)
+            self._history['vacc'].append(pval_acc)
+            print('[*]  pre-evaluation:  loss={:.4f}  acc={:.2f}%'.format(pval_loss, 100*pval_acc))
 
     def _TS_preval(self):
         with torch.no_grad():
@@ -207,9 +209,12 @@ class Pipeline:
                 outputs = torch.unsqueeze(torch.sigmoid(outputs), dim=1)
                 loss = self._criterion(outputs, labels)
                 pval_loss += loss.item()/len(sampler)
+                pval_acc += accuracy(labels, outputs)/len(sampler)
             self._history['tloss'].append(pval_loss)
             self._history['vloss'].append(pval_loss)
-            print('[*]  pre-evaluation:  loss={:.4f}'.format(pval_loss))
+            self._history['tacc'].append(pval_acc)
+            self._history['vacc'].append(pval_acc)
+            print('[*]  pre-evaluation:  loss={:.4f}  acc={:.2f}%'.format(pval_loss, 100*pval_acc))
 
     def _RP_fit(self):
         train_sampler = self._samplers['train']
@@ -227,6 +232,7 @@ class Pipeline:
                 loss.backward()
                 self._optimizer.step()
                 tloss += loss.item()/len(train_sampler)
+                tacc += accuracy(labels, outputs)/len(train_sampler)
             self._model.eval()
             with torch.no_grad():
                 for batch, (anchors, samples, labels) in tqdm(enumerate(valid_sampler), total=len(valid_sampler), desc='[*]  evaluating epoch={}'.format(epoch+1)):
@@ -235,10 +241,12 @@ class Pipeline:
                     outputs = torch.sigmoid(outputs)
                     loss = self._criterion(outputs, labels)
                     vloss += loss.item()/len(valid_sampler)
-
+                    vacc += accuracy(labels, outputs)/len(valid_sampler)
             self._history['tloss'].append(tloss)
             self._history['vloss'].append(vloss)
-            print('[*]  epoch={:02d}  tloss={:.4f}  vloss={:.4f}'.format(epoch + 1, tloss, vloss))
+            self._history['tacc'].append(tacc)
+            self._history['vacc'].append(vacc)
+            print('[*]  epoch={:02d}  tloss={:.4f}  vloss={:.4f}  tacc={:.2f}%  vacc={:.2f}%'.format(epoch + 1, tloss, vloss, 100*tacc, 100*vacc))
             self._save_model_and_optimizer(epoch)
 
     def _TS_fit(self):
@@ -398,14 +406,19 @@ class Pipeline:
         markers = ['.', '.']
         Y1, Y2 = ['tloss', 'vloss'], ['tacc', 'vacc']
         fig, ax1 = plt.subplots(figsize=(8, 3))
-        for y1, style, marker in zip(Y1, styles, markers):
+        ax2 = ax1.twinx()
+        for y1, y2, style, marker in zip(Y1, Y2, styles, markers):
             ax1.plot(self._history[y1], ls=style, marker=marker, ms=7, c='tab:blue', label=y1)
+            ax2.plot(self._history[y2], ls=style, marker=marker, ms=7, c='tab:orange', label=y2)
         ax1.tick_params(axis='y', labelcolor='tab:blue')
         ax1.set_ylabel('Loss', color='tab:blue')
+        ax2.tick_params(axis='y', labelcolor='tab:orange')
+        ax2.set_ylabel('Accuracy [%]', color='tab:orange')
         ax1.set_xlabel('Epoch')
 
         lines1, labels1 = ax1.get_legend_handles_labels()
-        ax1.legend(lines1, labels1)
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax2.legend(lines1+lines2, labels1+labels2)
         plt.tight_layout()
         plt.savefig(fname)
 

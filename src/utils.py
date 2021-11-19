@@ -59,6 +59,16 @@ def accuracy(target, output):
     output = output > .5
     return (target == output).sum().item() / output.size(0)
 
+def shuffle_files(files):
+    num_iters = len(files) // 4
+    shuffled_list = list()
+    for idx in range(num_iters):
+        shuffled_list.append(files[idx])
+        shuffled_list.append(files[idx+2])
+        shuffled_list.append(files[idx+1])
+        shuffled_list.append(files[idx+3])
+    return shuffled_list
+
 def get_subject_id(filepath):
     return filepath.split('_')[0].split('-')[-1]
 
