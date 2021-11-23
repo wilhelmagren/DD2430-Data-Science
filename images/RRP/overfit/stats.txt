@@ -1,0 +1,4 @@
+stats:	0.3517
+pval:	0.0011
+
+$ python main.py RP -s 15 -r 2 4 -lr 0.0005 -b 128 -v -tp 4 -e 20

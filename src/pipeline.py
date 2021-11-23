@@ -5,8 +5,9 @@ embedder, and model respectively. Features methods fore pre-evaluation,
 fitting model, post-evaluation, t-SNE visualization, statistical tests.
 
 Authors: Wilhelm Ågren <wagren@kth.se>
-Last edited: 16-11-2021
+Last edited: 23-11-2021
 """
+import random
 import torch
 import warnings
 import itertools
@@ -134,6 +135,7 @@ class Pipeline:
 
     def _split_dataset(self, dataset, tot_recordings, p=.8, **kwargs):
         WPRINT('splitting dataset into train/validation', self)
+        """
         X_train, X_valid = list(), list()
         Y_train, Y_valid = list(), list()
         for recording in dataset.X:
@@ -149,12 +151,16 @@ class Pipeline:
         X_valid = {k: X_valid[k] for k in range(len(X_valid))}
         Y_train = {k: Y_train[k] for k in range(len(Y_train))}
         Y_valid = {k: Y_valid[k] for k in range(len(Y_valid))}
+        """
+        split_idx = int(np.floor(tot_recordings * p))
+        train_range = list(range(split_idx))
+        valid_range = list(range(split_idx, tot_recordings))
+        X_train, X_valid = {k: dataset.X[k] for k in set(dataset.X).intersection(train_range)}, {k: dataset.X[k] for k in set(dataset.X).intersection(valid_range)}
+        Y_train, Y_valid = {k: dataset.Y[k] for k in set(dataset.Y).intersection(train_range)}, {k: dataset.Y[k] for k in set(dataset.Y).intersection(valid_range)}
 
         train_datasubset = Datasubset(X_train, Y_train)
         valid_datasubset = Datasubset(X_valid, Y_valid)
-
         WPRINT('splitted dataset into train/validation  80/20\n     train:{}  validation:{}'.format(train_datasubset.shape, valid_datasubset.shape), self)
-
         return train_datasubset, valid_datasubset
 
     def _save_model(self, *args, **kwargs):
@@ -353,6 +359,25 @@ class Pipeline:
             stats += a
             pval += b
         print('pval={}, stats={}'.format(pval/num_samples, stats/num_samples))
+
+    def statistics_gender(self, *args, **kwargs):
+        dist = self._embeddings['post']
+        embeddings = dist[0]
+        genders = list(x[1] for x in dist[1])
+        males, females = list(), list()
+        for emb, gen in zip(embeddings, genders):
+            if gen:
+                males.append(emb)
+            else:
+                females.append(emb)
+        midx, fidx = random.sample(list(range(len(males))), k=20), random.sample(list(range(len(females))), k=20)
+        stats, pval = 0., 0.
+        for m, f in zip(midx, fidx):
+            a, b = kstest(males[m], females[f])
+            stats += a
+            pval += b
+
+        print(f'average from 20 random samples. pval={pval/len(midx)}, stats={stats/len(midx)}')
 
     def t_SNE(self, *args, **kwargs):
         WPRINT('visualizing embeddings using t-SNE', self)

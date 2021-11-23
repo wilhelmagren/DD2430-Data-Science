@@ -108,16 +108,16 @@ def p_args():
 if __name__ == "__main__":
     args = p_args()
     pipe = Pipeline(args)
-    pipe._load_model(fpath='../images/EEG-transfer-learning_results/params.pth')  # the EEG trained model is in filepath:  `../images/EEG-transfer-learning_results/params.pth`
-    pipe.preval()
-    pipe.extract_embeddings(dist='pre')
-    pipe.t_SNE(dist='pre', flag='gender', perplexity=15)
-    pipe.t_SNE(dist='pre', flag='recording', perplexity=15)
-    pipe.fit()
+    #pipe._load_model_and_optimizer(fpath='../images/RRP/prob/x=.75/params.pth')  # the EEG trained model is in filepath:  `../images/EEG-transfer-learning_results/params.pth`
+    #pipe.preval()
+    #pipe.extract_embeddings(dist='pre')
+    #pipe.t_SNE(dist='pre', flag='gender', perplexity=15)
+    #pipe.t_SNE(dist='pre', flag='recording', perplexity=15)
+    #pipe.fit()
     pipe.extract_embeddings(dist='post')
-    pipe.t_SNE(dist='post', flag='gender', perplexity=15)
-    pipe.t_SNE(dist='post', flag='recording', perplexity=15)
-    pipe.plot_training()
-    pipe.statistics()
+    #pipe.t_SNE(dist='post', flag='gender', perplexity=15)
+    #pipe.t_SNE(dist='post', flag='recording', perplexity=15)
+    #pipe.plot_training()
+    pipe.statistics_gender()
     print('Done!')
 
